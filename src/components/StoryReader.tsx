@@ -1,0 +1,1076 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Heart,
+  HelpCircle,
+  Lightbulb,
+  MessageCircle,
+  Moon,
+  Palette,
+  Pause,
+  Play,
+  RotateCcw,
+  Sparkles,
+  Square,
+  Sun,
+  Volume2,
+} from 'lucide-react';
+import { Story, UserProgress } from '../types/story';
+import { STORY_CATEGORIES } from '../data/stories';
+import { AGE_GROUP_PROFILES, CARTOON_CHARACTERS } from '../data/characters';
+import { StoryIllustration } from './StoryIllustration';
+import { CharacterAvatar } from './CharacterAvatar';
+import { CharacterColoringStudio } from './CharacterColoringStudio';
+
+interface StoryReaderProps {
+  story: Story;
+  allStories: Story[];
+  progress: UserProgress;
+  isDark: boolean;
+  onToggleDark: () => void;
+  onBackToLibrary: () => void;
+  onOpenProfile: () => void;
+  onOpenStory: (storyId: string) => void;
+  onToggleFavorite: (storyId: string) => void;
+  onToggleCompleted: (storyId: string) => void;
+  onRecordQuizScore: (storyId: string, score: number, total: number) => void;
+  onToggleChallenge: (storyId: string) => void;
+}
+
+type FontSizeLevel = 'sm' | 'md' | 'lg';
+type ReadingMode = 'continuous' | 'step';
+type DeckTab = 'lessons' | 'quiz' | 'practice';
+
+export const StoryReader: React.FC<StoryReaderProps> = ({
+  story,
+  allStories,
+  progress,
+  isDark,
+  onToggleDark,
+  onBackToLibrary,
+  onOpenProfile,
+  onOpenStory,
+  onToggleFavorite,
+  onToggleCompleted,
+  onRecordQuizScore,
+  onToggleChallenge,
+}) => {
+  const [fontSize, setFontSize] = useState<FontSizeLevel>('md');
+  const [readingMode, setReadingMode] = useState<ReadingMode>('continuous');
+  const [stepIndex, setStepIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState<DeckTab>('lessons');
+  const [showColoringStudio, setShowColoringStudio] = useState(false);
+
+  // Quiz state
+  const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
+
+  // Audio / Speech Synthesis state
+  const [speechSupported] = useState(
+    () => typeof window !== 'undefined' && 'speechSynthesis' in window
+  );
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [speechRate, setSpeechRate] = useState<0.85 | 1 | 1.15>(0.85);
+  const [activeSpokenParagraph, setActiveSpokenParagraph] = useState<number | null>(null);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const speakingCancelledRef = useRef(false);
+  const speechRateRef = useRef(speechRate);
+  speechRateRef.current = speechRate;
+  const readingModeRef = useRef(readingMode);
+  readingModeRef.current = readingMode;
+
+  const isCompleted = progress.completedStoryIds.includes(story.id);
+  const isFavorite = progress.favoriteStoryIds.includes(story.id);
+  const isChallengeDone = progress.completedChallenges.includes(story.id);
+  const savedQuiz = progress.quizScores[story.id];
+
+  const categoryLabel =
+    STORY_CATEGORIES.find((c) => c.id === story.category)?.label ?? '';
+  const guideCharacter = CARTOON_CHARACTERS[story.featuredCharacter];
+  const ageProfile = AGE_GROUP_PROFILES[story.ageGroup];
+
+  const currentStoryIndex = useMemo(
+    () => allStories.findIndex((s) => s.id === story.id),
+    [allStories, story.id]
+  );
+  const prevStory = currentStoryIndex > 0 ? allStories[currentStoryIndex - 1] : null;
+  const nextStory =
+    currentStoryIndex >= 0 && currentStoryIndex < allStories.length - 1
+      ? allStories[currentStoryIndex + 1]
+      : null;
+
+  const stopSpeech = () => {
+    speakingCancelledRef.current = true;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setActiveSpokenParagraph(null);
+  };
+
+  // Load available browser TTS voices (including async voiceschanged)
+  useEffect(() => {
+    if (!speechSupported) return;
+    const updateVoices = () => {
+      const list = window.speechSynthesis.getVoices();
+      if (list.length > 0) {
+        setVoices(list);
+      }
+    };
+    updateVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', updateVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', updateVoices);
+    };
+  }, [speechSupported]);
+
+  // Reset per-story local state and stop speech when switching stories or unmounting
+  useEffect(() => {
+    stopSpeech();
+    setSpeechError(null);
+    setStepIndex(0);
+    setSelectedAnswers({});
+    setQuizSubmitted(false);
+    setActiveTab('lessons');
+    setShowColoringStudio(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return () => {
+      stopSpeech();
+    };
+  }, [story.id]);
+
+  const openAndScrollToColoring = () => {
+    setShowColoringStudio(true);
+    setTimeout(() => {
+      document
+        .getElementById('character-coloring-studio')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
+
+  const preferredArabicVoice = useMemo(() => {
+    const arVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('ar'));
+    if (arVoices.length === 0) return undefined;
+    return (
+      arVoices.find((v) => v.lang.toLowerCase() === 'ar-sa') ??
+      arVoices.find((v) => v.lang.toLowerCase() === 'ar-eg') ??
+      arVoices[0]
+    );
+  }, [voices]);
+
+  const speakParagraphs = (startFromIndex: number, includeTitle = false) => {
+    if (!speechSupported) return;
+    window.speechSynthesis.cancel();
+    speakingCancelledRef.current = false;
+    setSpeechError(null);
+
+    const activeList =
+      voices.length > 0 ? voices : window.speechSynthesis.getVoices();
+    const arabicVoice =
+      preferredArabicVoice ??
+      activeList.find((v) => v.lang.toLowerCase().startsWith('ar'));
+
+    const speakSegment = (idx: number, speakingTitleFirst: boolean) => {
+      if (speakingCancelledRef.current) return;
+      if (!speakingTitleFirst && idx >= story.paragraphs.length) {
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveSpokenParagraph(null);
+        return;
+      }
+
+      const textToRead = speakingTitleFirst
+        ? story.title
+        : story.paragraphs[idx];
+      const utterance = new SpeechSynthesisUtterance(textToRead);
+      utterance.lang = arabicVoice?.lang ?? 'ar-SA';
+      utterance.rate = speechRateRef.current;
+      utterance.pitch = 1.03;
+      if (arabicVoice) {
+        utterance.voice = arabicVoice;
+      }
+
+      utterance.onstart = () => {
+        if (!speakingTitleFirst) {
+          setActiveSpokenParagraph(idx);
+          if (readingModeRef.current === 'step') {
+            setStepIndex(idx);
+          }
+        }
+      };
+
+      utterance.onend = () => {
+        if (speakingCancelledRef.current) return;
+        if (speakingTitleFirst) {
+          speakSegment(idx, false);
+        } else {
+          speakSegment(idx + 1, false);
+        }
+      };
+
+      utterance.onerror = (event) => {
+        if (speakingCancelledRef.current || event.error === 'interrupted' || event.error === 'canceled') {
+          return;
+        }
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveSpokenParagraph(null);
+        setSpeechError('تعذّر تشغيل الصوت في هذا المتصفح، يمكنك متابعة القراءة نصياً.');
+      };
+
+      window.speechSynthesis.speak(utterance);
+    };
+
+    setIsSpeaking(true);
+    setIsPaused(false);
+    speakSegment(startFromIndex, includeTitle && startFromIndex === 0);
+  };
+
+  const handleTogglePlayPause = () => {
+    if (!speechSupported) return;
+
+    if (!isSpeaking) {
+      const startIndex = readingMode === 'step' ? stepIndex : 0;
+      speakParagraphs(startIndex, startIndex === 0);
+      return;
+    }
+
+    if (isPaused) {
+      window.speechSynthesis.resume();
+      setIsPaused(false);
+    } else {
+      window.speechSynthesis.pause();
+      setIsPaused(true);
+    }
+  };
+
+  const handleRateChange = (newRate: 0.85 | 1 | 1.15) => {
+    setSpeechRate(newRate);
+    speechRateRef.current = newRate;
+    if (isSpeaking && !isPaused) {
+      const resumeIdx = activeSpokenParagraph ?? (readingMode === 'step' ? stepIndex : 0);
+      speakParagraphs(resumeIdx, false);
+    }
+  };
+
+  const fontSizeClasses: Record<FontSizeLevel, string> = {
+    sm: 'text-base leading-[1.9]',
+    md: 'text-lg sm:text-[1.18rem] leading-[1.95]',
+    lg: 'text-xl sm:text-[1.32rem] leading-[2]',
+  };
+
+  const allQuestionsAnswered =
+    story.quiz.length > 0 &&
+    story.quiz.every((_, idx) => selectedAnswers[idx] !== undefined);
+
+  const currentQuizScore = story.quiz.reduce(
+    (acc, q, idx) => (selectedAnswers[idx] === q.correctIndex ? acc + 1 : acc),
+    0
+  );
+
+  const handleSubmitQuiz = () => {
+    if (!allQuestionsAnswered) return;
+    setQuizSubmitted(true);
+    onRecordQuizScore(story.id, currentQuizScore, story.quiz.length);
+    if (!isCompleted) {
+      onToggleCompleted(story.id);
+    }
+  };
+
+  const handleResetQuiz = () => {
+    setSelectedAnswers({});
+    setQuizSubmitted(false);
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+      {/* Reader Control Bar */}
+      <div className="bg-white dark:bg-slate-900 border border-[#E6E0D4] dark:border-slate-800 rounded-xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={onBackToLibrary}
+          className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#1C2421] dark:text-slate-200 hover:bg-[#F3EFE6] dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+        >
+          <ArrowRight className="w-4 h-4 text-[#0D7A5F] dark:text-emerald-400" />
+          <span>العودة إلى المكتبة</span>
+        </button>
+
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          {/* Reading Mode Toggle */}
+          <div className="inline-flex items-center bg-[#F3EFE6] dark:bg-slate-800 p-1 rounded-lg">
+            <button
+              type="button"
+              onClick={() => setReadingMode('continuous')}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                readingMode === 'continuous'
+                  ? 'bg-white dark:bg-slate-700 text-[#1C2421] dark:text-white shadow-xs'
+                  : 'text-[#4B5853] dark:text-slate-400'
+              }`}
+            >
+              قراءة متصلة
+            </button>
+            <button
+              type="button"
+              onClick={() => setReadingMode('step')}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                readingMode === 'step'
+                  ? 'bg-white dark:bg-slate-700 text-[#1C2421] dark:text-white shadow-xs'
+                  : 'text-[#4B5853] dark:text-slate-400'
+              }`}
+            >
+              فقرة بفقرة
+            </button>
+          </div>
+
+          {/* Font Size Selector */}
+          <div
+            className="inline-flex items-center bg-[#F3EFE6] dark:bg-slate-800 p-1 rounded-lg"
+            aria-label="حجم الخط"
+          >
+            {(['sm', 'md', 'lg'] as FontSizeLevel[]).map((level, i) => {
+              const labels = ['صغير', 'متوسط', 'كبير'];
+              return (
+                <button
+                  key={level}
+                  type="button"
+                  onClick={() => setFontSize(level)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                    fontSize === level
+                      ? 'bg-white dark:bg-slate-700 text-[#1C2421] dark:text-white shadow-xs'
+                      : 'text-[#4B5853] dark:text-slate-400'
+                  }`}
+                >
+                  {labels[i]}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Audio Narration Controls */}
+          {speechSupported && (
+            <div className="inline-flex items-center gap-1 bg-[#F3EFE6] dark:bg-slate-800 p-1 rounded-lg">
+              <button
+                type="button"
+                onClick={handleTogglePlayPause}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 text-white transition-colors cursor-pointer whitespace-nowrap"
+              >
+                {isSpeaking && !isPaused ? (
+                  <>
+                    <Pause className="w-3.5 h-3.5" />
+                    <span>إيقاف مؤقت</span>
+                  </>
+                ) : (
+                  <>
+                    {isSpeaking && isPaused ? (
+                      <Play className="w-3.5 h-3.5" />
+                    ) : (
+                      <Volume2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isPaused ? 'متابعة الاستماع' : 'استماع للقصة'}</span>
+                  </>
+                )}
+              </button>
+
+              {isSpeaking && (
+                <button
+                  type="button"
+                  onClick={stopSpeech}
+                  aria-label="إيقاف القراءة الصوتية"
+                  className="p-1.5 text-[#4B5853] dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 rounded-md cursor-pointer"
+                >
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                </button>
+              )}
+
+              <select
+                value={speechRate}
+                onChange={(e) => handleRateChange(Number(e.target.value) as 0.85 | 1 | 1.15)}
+                aria-label="سرعة القراءة الصوتية"
+                className="text-xs bg-transparent text-[#4B5853] dark:text-slate-300 px-1.5 py-1 focus:outline-none cursor-pointer"
+              >
+                <option value={0.85} className="dark:bg-slate-800">بطيء ومريح</option>
+                <option value={1} className="dark:bg-slate-800">عادي</option>
+                <option value={1.15} className="dark:bg-slate-800">سريع</option>
+              </select>
+            </div>
+          )}
+
+          {/* Favorite Toggle */}
+          <button
+            type="button"
+            onClick={() => onToggleFavorite(story.id)}
+            aria-label={isFavorite ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+            className={`p-2 rounded-lg border transition-colors cursor-pointer ${
+              isFavorite
+                ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400'
+                : 'bg-white dark:bg-slate-900 border-[#E6E0D4] dark:border-slate-700 text-[#4B5853] dark:text-slate-300 hover:bg-[#F3EFE6] dark:hover:bg-slate-800'
+            }`}
+          >
+            <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+          </button>
+
+          {/* Bedtime / Dark Toggle */}
+          <button
+            type="button"
+            onClick={onToggleDark}
+            aria-label={isDark ? 'الوضع النهاري' : 'وضع ما قبل النوم'}
+            className="p-2 rounded-lg border border-[#E6E0D4] dark:border-slate-700 bg-white dark:bg-slate-900 text-[#4B5853] dark:text-slate-300 hover:bg-[#F3EFE6] dark:hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            {isDark ? (
+              <Sun className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4 text-[#0D7A5F]" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Two-Zone Reader Workspace: 60-65% Reading Stage + 35-40% Educational Deck */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Zone A: Primary Reading Stage */}
+        <article className="lg:col-span-7 bg-white dark:bg-slate-900 border border-[#E6E0D4] dark:border-slate-800 rounded-xl overflow-hidden">
+          <div className="h-52 sm:h-60 w-full bg-[#F3EFE6] dark:bg-slate-800 overflow-hidden">
+            <StoryIllustration id={story.illustrationId} />
+          </div>
+
+          <div className="p-6 sm:p-8 space-y-6">
+            {/* Story Header & Typographic Metadata */}
+            <header className="space-y-3 pb-5 border-b border-[#F0EBE0] dark:border-slate-800">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[#64706B] dark:text-slate-400">
+                <span className="font-medium text-[#0D7A5F] dark:text-emerald-400">
+                  {categoryLabel}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>{story.ageGroup}</span>
+                <span aria-hidden="true">·</span>
+                <span className="tabular-nums">{story.readingMinutes} دقائق للقراءة</span>
+                <span aria-hidden="true">·</span>
+                <span>{story.sourceRef}</span>
+              </div>
+
+              <h1 className="font-serif-arabic text-2xl sm:text-3xl font-bold text-[#1C2421] dark:text-slate-100 leading-snug">
+                {story.title}
+              </h1>
+
+              <p className="text-sm text-[#4B5853] dark:text-slate-400">
+                القيمة الأساسية: <strong className="font-semibold text-[#1C2421] dark:text-slate-200">{story.coreValue}</strong>
+                <span aria-hidden="true"> · </span>
+                <span>{ageProfile.stageName}</span>
+              </p>
+            </header>
+
+            {/* Cartoon Character Guide Companion Card */}
+            <div className="rounded-xl border border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/60 p-4 sm:p-5 flex flex-col sm:flex-row items-start gap-4">
+              <CharacterAvatar id={guideCharacter.id} size="md" />
+              <div className="space-y-1.5 min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <strong className="text-sm font-bold text-[#1C2421] dark:text-slate-100">
+                    دور {guideCharacter.name} في هذه القصة
+                  </strong>
+                  <span aria-hidden="true" className="text-[#64706B]">·</span>
+                  <span className="text-[#0D7A5F] dark:text-emerald-400 font-medium">
+                    {guideCharacter.tagline}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-[#4B5853] dark:text-slate-300 leading-relaxed">
+                  {story.characterRoleInStory}
+                </p>
+                <p className="text-xs sm:text-sm font-medium text-[#1C2421] dark:text-slate-100 pt-1">
+                  «{story.characterTip}»
+                </p>
+              </div>
+            </div>
+
+            {/* Optional Quran / Hadith / Poetry Callout */}
+            {story.quranOrHadithQuote && (
+              <blockquote className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/25 p-5 space-y-2">
+                <p className="font-serif-arabic text-lg sm:text-xl leading-loose text-[#1C2421] dark:text-amber-100">
+                  {story.quranOrHadithQuote.text}
+                </p>
+                <footer className="text-xs font-medium text-[#9A6712] dark:text-amber-400">
+                  — {story.quranOrHadithQuote.reference}
+                </footer>
+              </blockquote>
+            )}
+
+            {/* Dedicated Child-Friendly Text-to-Speech Audio Player */}
+            <div className="rounded-xl border border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/70 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    type="button"
+                    disabled={!speechSupported}
+                    onClick={handleTogglePlayPause}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer shrink-0"
+                  >
+                    {isSpeaking && !isPaused ? (
+                      <>
+                        <Pause className="w-4 h-4" />
+                        <span>إيقاف مؤقت</span>
+                      </>
+                    ) : (
+                      <>
+                        {isSpeaking && isPaused ? (
+                          <Play className="w-4 h-4" />
+                        ) : (
+                          <Volume2 className="w-4 h-4" />
+                        )}
+                        <span>{isPaused ? 'استئناف القراءة الصوتية' : 'تشغيل القراءة الصوتية'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  {isSpeaking && (
+                    <button
+                      type="button"
+                      onClick={stopSpeech}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#4B5853] dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer shrink-0"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-current" />
+                      <span>إيقاف</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-[#64706B] dark:text-slate-400">
+                  {speechSupported ? (
+                    <span>
+                      {isSpeaking
+                        ? activeSpokenParagraph !== null
+                          ? `جاري قراءة الفقرة ${activeSpokenParagraph + 1} من ${story.paragraphs.length}`
+                          : 'جاري قراءة عنوان القصة...'
+                        : 'اضغط للاستماع بصوت واضح ومريح للأطفال'}
+                    </span>
+                  ) : (
+                    <span>المتصفح الحالي لا يدعم القراءة الصوتية التلقائية.</span>
+                  )}
+                </div>
+              </div>
+
+              {isSpeaking && activeSpokenParagraph !== null && (
+                <div className="flex items-center gap-1.5" aria-label="تقدم القراءة الصوتية">
+                  {story.paragraphs.map((_, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => speakParagraphs(idx, false)}
+                      aria-label={`تشغيل الصوت من الفقرة ${idx + 1}`}
+                      className={`h-1.5 flex-1 rounded-full transition-colors cursor-pointer ${
+                        idx <= activeSpokenParagraph
+                          ? 'bg-[#0D7A5F] dark:bg-emerald-400'
+                          : 'bg-[#E6E0D4] dark:bg-slate-700 hover:bg-[#D5CDBA]'
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {speechError && (
+                <p className="text-xs text-rose-600 dark:text-rose-400">{speechError}</p>
+              )}
+            </div>
+
+            {/* Story Body: Continuous vs Step-by-step */}
+            {readingMode === 'continuous' ? (
+              <div className="space-y-4">
+                {story.paragraphs.map((para, idx) => {
+                  const isCurrentlySpoken = activeSpokenParagraph === idx;
+                  return (
+                    <div
+                      key={idx}
+                      className={`group flex items-start gap-2.5 rounded-lg transition-colors ${
+                        isCurrentlySpoken
+                          ? 'bg-emerald-50/90 dark:bg-emerald-950/40 px-3 py-2.5 -mx-3'
+                          : ''
+                      }`}
+                    >
+                      {speechSupported && (
+                        <button
+                          type="button"
+                          onClick={() => speakParagraphs(idx, false)}
+                          aria-label={`استمع للفقرة ${idx + 1}`}
+                          title="استمع من هذه الفقرة"
+                          className={`mt-1.5 p-1.5 rounded-md transition-opacity cursor-pointer shrink-0 ${
+                            isCurrentlySpoken
+                              ? 'text-[#0D7A5F] dark:text-emerald-400 opacity-100'
+                              : 'text-[#64706B] dark:text-slate-400 opacity-50 group-hover:opacity-100 hover:bg-[#F3EFE6] dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <Volume2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      <p className={`${fontSizeClasses[fontSize]} text-[#1C2421] dark:text-slate-200 flex-1`}>
+                        {para}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between text-xs text-[#64706B] dark:text-slate-400">
+                  <span className="tabular-nums font-medium">
+                    الفقرة {stepIndex + 1} من {story.paragraphs.length}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {story.paragraphs.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setStepIndex(idx)}
+                        aria-label={`الانتقال إلى الفقرة ${idx + 1}`}
+                        className={`h-2 rounded-full transition-all cursor-pointer ${
+                          idx === stepIndex
+                            ? 'w-6 bg-[#0D7A5F] dark:bg-emerald-400'
+                            : 'w-2 bg-[#E6E0D4] dark:bg-slate-700 hover:bg-[#C7BFB0]'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="min-h-[180px] flex flex-col justify-between gap-4 bg-[#FAF8F4] dark:bg-slate-800/60 border border-[#E6E0D4] dark:border-slate-700 rounded-xl p-6">
+                  <p className={`${fontSizeClasses[fontSize]} text-[#1C2421] dark:text-slate-100`}>
+                    {story.paragraphs[stepIndex]}
+                  </p>
+                  {speechSupported && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => speakParagraphs(stepIndex, false)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#0D7A5F] dark:text-emerald-400 hover:bg-[#F3EFE6] dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                        <span>استمع لهذه الفقرة</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    disabled={stepIndex === 0}
+                    onClick={() => setStepIndex((prev) => Math.max(0, prev - 1))}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-700 text-[#1C2421] dark:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#F3EFE6] dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                    <span>الفقرة السابقة</span>
+                  </button>
+
+                  {stepIndex < story.paragraphs.length - 1 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setStepIndex((prev) => Math.min(story.paragraphs.length - 1, prev + 1))
+                      }
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 text-white cursor-pointer"
+                    >
+                      <span>الفقرة التالية</span>
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('quiz')}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[#C88A1E] hover:bg-[#B07817] text-white cursor-pointer"
+                    >
+                      <HelpCircle className="w-4 h-4" />
+                      <span>انتقل لاختبار الفهم</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Completion, Coloring Studio & Next/Prev Story Footer */}
+            <footer className="pt-6 mt-6 border-t border-[#F0EBE0] dark:border-slate-800 space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-4 bg-[#FAF8F4] dark:bg-slate-800/70 border border-[#E6E0D4] dark:border-slate-700 rounded-xl p-4">
+                <div>
+                  <p className="text-sm font-bold text-[#1C2421] dark:text-slate-100">
+                    {isCompleted ? 'أحسنت! أتممت قراءة هذه الحكاية' : 'هل أنهيت قراءة القصة؟'}
+                  </p>
+                  <p className="text-xs text-[#4B5853] dark:text-slate-400 mt-0.5">
+                    {isCompleted
+                      ? 'حصلت على نجمتي القراءة، ويمكنك الآن تلوين شخصيات القصة أو اختبار فهمك.'
+                      : 'سجّل إتمام القصة لإضافة نجمتين إلى رصيدك وفتح مرسم تلوين الشخصيات.'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isCompleted) {
+                        onToggleCompleted(story.id);
+                        openAndScrollToColoring();
+                      } else {
+                        onToggleCompleted(story.id);
+                      }
+                    }}
+                    className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                      isCompleted
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[#0D7A5F] dark:text-emerald-400'
+                        : 'bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 text-white'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{isCompleted ? 'قصة مكتملة' : 'أتممت قراءة القصة'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (showColoringStudio) {
+                        setShowColoringStudio(false);
+                      } else {
+                        openAndScrollToColoring();
+                      }
+                    }}
+                    className={`inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border transition-colors cursor-pointer whitespace-nowrap ${
+                      showColoringStudio
+                        ? 'border-[#C88A1E] bg-amber-50 dark:bg-amber-950/40 text-[#9A670E] dark:text-amber-300'
+                        : 'border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#1C2421] dark:text-slate-200 hover:border-[#C88A1E]'
+                    }`}
+                  >
+                    <Palette className="w-4 h-4 text-[#C88A1E] dark:text-amber-400" />
+                    <span>{showColoringStudio ? 'إخفاء المرسم' : 'لوّن شخصيات القصة'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {showColoringStudio && (
+                <CharacterColoringStudio
+                  initialCharacterId={story.featuredCharacter}
+                  storyTitle={story.title}
+                />
+              )}
+
+              <div className="flex items-center justify-between gap-4 pt-2">
+                {prevStory ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenStory(prevStory.id)}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-[#4B5853] dark:text-slate-300 hover:text-[#0D7A5F] dark:hover:text-emerald-400 cursor-pointer truncate"
+                  >
+                    <ChevronRight className="w-4 h-4 shrink-0" />
+                    <span className="truncate">السابقة: {prevStory.title}</span>
+                  </button>
+                ) : (
+                  <span />
+                )}
+
+                {nextStory && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenStory(nextStory.id)}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-[#0D7A5F] dark:text-emerald-400 hover:underline cursor-pointer truncate"
+                  >
+                    <span className="truncate">التالية: {nextStory.title}</span>
+                    <ChevronLeft className="w-4 h-4 shrink-0" />
+                  </button>
+                )}
+              </div>
+            </footer>
+          </div>
+        </article>
+
+        {/* Zone B: Interactive Lessons, Quiz & Practice Deck */}
+        <aside className="lg:col-span-5 lg:sticky lg:top-24 bg-white dark:bg-slate-900 border border-[#E6E0D4] dark:border-slate-800 rounded-xl overflow-hidden">
+          {/* Deck Tab Switcher */}
+          <div className="grid grid-cols-3 border-b border-[#E6E0D4] dark:border-slate-800 bg-[#FAF8F4] dark:bg-slate-800/50">
+            <button
+              type="button"
+              onClick={() => setActiveTab('lessons')}
+              className={`flex items-center justify-center gap-1.5 py-3.5 px-2 text-xs sm:text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+                activeTab === 'lessons'
+                  ? 'border-[#0D7A5F] dark:border-emerald-400 text-[#0D7A5F] dark:text-emerald-400 bg-white dark:bg-slate-900'
+                  : 'border-transparent text-[#4B5853] dark:text-slate-400 hover:text-[#1C2421] dark:hover:text-white'
+              }`}
+            >
+              <Lightbulb className="w-4 h-4 shrink-0" />
+              <span>الدروس المستفادة</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('quiz')}
+              className={`flex items-center justify-center gap-1.5 py-3.5 px-2 text-xs sm:text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+                activeTab === 'quiz'
+                  ? 'border-[#0D7A5F] dark:border-emerald-400 text-[#0D7A5F] dark:text-emerald-400 bg-white dark:bg-slate-900'
+                  : 'border-transparent text-[#4B5853] dark:text-slate-400 hover:text-[#1C2421] dark:hover:text-white'
+              }`}
+            >
+              <HelpCircle className="w-4 h-4 shrink-0" />
+              <span>اختبر فهمك ({story.quiz.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('practice')}
+              className={`flex items-center justify-center gap-1.5 py-3.5 px-2 text-xs sm:text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+                activeTab === 'practice'
+                  ? 'border-[#0D7A5F] dark:border-emerald-400 text-[#0D7A5F] dark:text-emerald-400 bg-white dark:bg-slate-900'
+                  : 'border-transparent text-[#4B5853] dark:text-slate-400 hover:text-[#1C2421] dark:hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 shrink-0" />
+              <span>تطبيق وحوار</span>
+            </button>
+          </div>
+
+          <div className="p-5 sm:p-6">
+            {/* Tab 1: Numbered Educational Lessons */}
+            {activeTab === 'lessons' && (
+              <div className="space-y-5">
+                <div className="rounded-xl border border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/60 p-4">
+                  <p className="text-xs text-[#64706B] dark:text-slate-400 mb-1">الرسالة التربوية الرئيسية</p>
+                  <p className="font-serif-arabic text-lg font-bold text-[#0D7A5F] dark:text-emerald-400">
+                    {story.coreValue}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <h2 className="text-sm font-bold text-[#1C2421] dark:text-slate-100">
+                    ماذا نتعلم من هذه القصة؟
+                  </h2>
+                  <ol className="space-y-3">
+                    {story.lessons.map((lesson, idx) => (
+                      <li
+                        key={idx}
+                        className="rounded-xl border border-[#E6E0D4] dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-1.5"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <span className="font-bold text-sm text-[#C88A1E] dark:text-amber-400 tabular-nums shrink-0 mt-0.5">
+                            0{idx + 1}.
+                          </span>
+                          <div>
+                            <h3 className="text-sm font-bold text-[#1C2421] dark:text-slate-100">
+                              {lesson.title}
+                            </h3>
+                            <p className="text-xs sm:text-sm text-[#4B5853] dark:text-slate-300 leading-relaxed mt-1">
+                              {lesson.detail}
+                            </p>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+
+                <div className="pt-2 flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('quiz')}
+                    className="w-full py-2.5 px-4 text-sm font-medium rounded-lg bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 text-white transition-colors cursor-pointer"
+                  >
+                    اختبر فهمك الآن ({story.quiz.length} أسئلة)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: Interactive Comprehension Quiz */}
+            {activeTab === 'quiz' && (
+              <div className="space-y-5">
+                {savedQuiz && !quizSubmitted && (
+                  <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/30 px-4 py-3 text-xs text-[#0D7A5F] dark:text-emerald-300 flex items-center justify-between">
+                    <span>أعلى نتيجة مسجلة لك في هذه القصة:</span>
+                    <strong className="tabular-nums">
+                      {savedQuiz.score} من {savedQuiz.total}
+                    </strong>
+                  </div>
+                )}
+
+                <div className="space-y-5">
+                  {story.quiz.map((q, qIndex) => {
+                    const chosen = selectedAnswers[qIndex];
+                    return (
+                      <div
+                        key={qIndex}
+                        className="rounded-xl border border-[#E6E0D4] dark:border-slate-800 p-4 space-y-3"
+                      >
+                        <p className="text-sm font-bold text-[#1C2421] dark:text-slate-100 leading-relaxed">
+                          <span className="text-[#0D7A5F] dark:text-emerald-400 ml-1.5 tabular-nums">
+                            {qIndex + 1}.
+                          </span>
+                          {q.question}
+                        </p>
+
+                        <div className="space-y-2">
+                          {q.options.map((opt, optIdx) => {
+                            const isSelected = chosen === optIdx;
+                            const isCorrect = optIdx === q.correctIndex;
+
+                            let optionClass =
+                              'border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/60 text-[#1C2421] dark:text-slate-200 hover:border-[#0D7A5F]';
+
+                            if (quizSubmitted) {
+                              if (isCorrect) {
+                                optionClass =
+                                  'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 font-medium';
+                              } else if (isSelected && !isCorrect) {
+                                optionClass =
+                                  'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200';
+                              } else {
+                                optionClass =
+                                  'border-[#E6E0D4] dark:border-slate-800 bg-white dark:bg-slate-900 text-[#64706B] dark:text-slate-500 opacity-75';
+                              }
+                            } else if (isSelected) {
+                              optionClass =
+                                'border-[#0D7A5F] dark:border-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/40 text-[#0D7A5F] dark:text-emerald-300 font-medium';
+                            }
+
+                            return (
+                              <button
+                                key={optIdx}
+                                type="button"
+                                disabled={quizSubmitted}
+                                onClick={() =>
+                                  setSelectedAnswers((prev) => ({ ...prev, [qIndex]: optIdx }))
+                                }
+                                className={`w-full text-right px-3.5 py-2.5 text-xs sm:text-sm rounded-lg border transition-colors cursor-pointer disabled:cursor-default ${optionClass}`}
+                              >
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {quizSubmitted && (
+                          <div className="rounded-lg bg-[#FAF8F4] dark:bg-slate-800/70 border border-[#E6E0D4] dark:border-slate-700 p-3 text-xs text-[#4B5853] dark:text-slate-300 leading-relaxed">
+                            <strong className="text-[#1C2421] dark:text-slate-100">التوضيح: </strong>
+                            {q.explanation}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {!quizSubmitted ? (
+                  <button
+                    type="button"
+                    disabled={!allQuestionsAnswered}
+                    onClick={handleSubmitQuiz}
+                    className="w-full py-2.5 px-4 text-sm font-medium rounded-lg bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 text-white disabled:opacity-45 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  >
+                    {allQuestionsAnswered
+                      ? 'تحقق من الإجابات واحصل على النجوم'
+                      : 'أجب عن جميع الأسئلة أولاً'}
+                  </button>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/25 p-4 space-y-3 text-center">
+                    <p className="text-base font-bold text-[#1C2421] dark:text-slate-100 tabular-nums">
+                      نتيجتك: {currentQuizScore} من {story.quiz.length}
+                    </p>
+                    <p className="text-xs font-medium text-[#0D7A5F] dark:text-emerald-400 tabular-nums">
+                      {story.quiz.length > 0 && currentQuizScore / story.quiz.length >= 0.8
+                        ? `درجة عالية مميزة! كسبت +${currentQuizScore * 10 + 15} نقطة (بمكافأة التفوق)`
+                        : `كسبت +${currentQuizScore * 10} نقطة`}
+                    </p>
+                    <p className="text-xs text-[#4B5853] dark:text-slate-300">
+                      {currentQuizScore === story.quiz.length
+                        ? 'ممتاز! فهمت القصة ودروسها بالكامل.'
+                        : 'أحسنت المحاولة! راجع التوضيحات ويمكنك المحاولة مرة أخرى.'}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleResetQuiz}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-700 bg-white dark:bg-slate-800 text-[#1C2421] dark:text-slate-200 cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>إعادة الاختبار</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('practice')}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-[#0D7A5F] text-white cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>تحدي اليوم</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onOpenProfile}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 text-[#9A670E] dark:text-amber-300 cursor-pointer"
+                      >
+                        <span>أوسمتي في ملفي</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tab 3: Daily Behavior Challenge & Family Discussion */}
+            {activeTab === 'practice' && (
+              <div className="space-y-5">
+                {/* Daily Challenge Card */}
+                <div className="rounded-xl border border-[#E6E0D4] dark:border-slate-800 bg-[#FAF8F4] dark:bg-slate-800/60 p-5 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-medium text-[#C88A1E] dark:text-amber-400">
+                    <Sparkles className="w-4 h-4" />
+                    <span>تحدي السلوك اليومي</span>
+                  </div>
+                  <p className="text-sm text-[#1C2421] dark:text-slate-100 leading-relaxed">
+                    {story.dailyChallenge}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onToggleChallenge(story.id)}
+                    className={`w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 text-xs sm:text-sm font-medium rounded-lg border transition-colors cursor-pointer ${
+                      isChallengeDone
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-800 text-[#0D7A5F] dark:text-emerald-400'
+                        : 'bg-white dark:bg-slate-900 border-[#E6E0D4] dark:border-slate-700 text-[#1C2421] dark:text-slate-200 hover:border-[#0D7A5F]'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      {isChallengeDone
+                        ? 'تم إنجاز التحدي! (+١ نجمة)'
+                        : 'أنجزت هذا التحدي اليوم'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Family / Educator Discussion Prompt */}
+                <div className="rounded-xl border border-[#E6E0D4] dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-2.5">
+                  <div className="flex items-center gap-2 text-xs font-medium text-[#0D7A5F] dark:text-emerald-400">
+                    <MessageCircle className="w-4 h-4" />
+                    <span>سؤال للحوار مع الأسرة أو المعلم</span>
+                  </div>
+                  <p className="text-sm text-[#4B5853] dark:text-slate-300 leading-relaxed">
+                    {story.discussionPrompt}
+                  </p>
+                </div>
+
+                {/* Reward Coloring Shortcut */}
+                <button
+                  type="button"
+                  onClick={openAndScrollToColoring}
+                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 text-xs sm:text-sm font-medium rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/25 text-[#9A670E] dark:text-amber-300 hover:bg-amber-100/70 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
+                >
+                  <Palette className="w-4 h-4" />
+                  <span>افتح مرسم التلوين (تاليا، لين، معاذ)</span>
+                </button>
+
+                <div className="rounded-xl border border-[#F0EBE0] dark:border-slate-800 p-4 flex items-center gap-3 text-xs text-[#64706B] dark:text-slate-400">
+                  <BookOpen className="w-4 h-4 text-[#0D7A5F] dark:text-emerald-400 shrink-0" />
+                  <span>المصدر المرجعي: {story.sourceRef}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+};

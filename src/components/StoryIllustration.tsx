@@ -347,6 +347,52 @@ export const StoryIllustration: React.FC<StoryIllustrationProps> = ({ id, classN
           </g>
         );
 
+      case 'rainbow-rabbit':
+        return (
+          <g>
+            <rect width="400" height="240" fill="#E0F2FE" className="dark:fill-[#132238]" />
+            {/* Rainbow Arc */}
+            <path d="M40 205 A160 155 0 0 1 360 205" fill="none" stroke="#F43F5E" strokeWidth="10" opacity="0.75" />
+            <path d="M52 205 A148 143 0 0 1 348 205" fill="none" stroke="#FB923C" strokeWidth="10" opacity="0.8" />
+            <path d="M64 205 A136 131 0 0 1 336 205" fill="none" stroke="#FBBF24" strokeWidth="10" opacity="0.85" />
+            <path d="M76 205 A124 119 0 0 1 324 205" fill="none" stroke="#10B981" strokeWidth="10" opacity="0.8" />
+            <path d="M88 205 A112 107 0 0 1 312 205" fill="none" stroke="#38BDF8" strokeWidth="10" opacity="0.85" />
+            {/* Sun & Fluffy Cloud */}
+            <circle cx="336" cy="48" r="22" fill="#FBBF24" />
+            <path d="M58 62 C58 50 74 44 86 50 C94 40 112 42 116 54 C128 54 134 66 124 72 L62 72 C54 72 52 62 58 62 Z" fill="#FFFFFF" />
+            {/* Green Meadow */}
+            <path d="M0 178 Q120 158 240 178 T400 172 L400 240 L0 240 Z" fill="#34D399" />
+            <path d="M0 198 Q180 182 400 198 L400 240 L0 240 Z" fill="#10B981" />
+            {/* Cute White Rabbit (Farfour) */}
+            <g transform="translate(152, 84)">
+              <ellipse cx="32" cy="22" rx="9" ry="26" transform="rotate(-10 32 22)" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="2" />
+              <ellipse cx="58" cy="22" rx="9" ry="26" transform="rotate(10 58 22)" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="2" />
+              <ellipse cx="32" cy="24" rx="4.5" ry="17" transform="rotate(-10 32 24)" fill="#FDA4AF" />
+              <ellipse cx="58" cy="24" rx="4.5" ry="17" transform="rotate(10 58 24)" fill="#FDA4AF" />
+              <ellipse cx="45" cy="96" rx="28" ry="30" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="2" />
+              <ellipse cx="45" cy="98" rx="18" ry="22" fill="#38BDF8" opacity="0.85" />
+              <circle cx="45" cy="54" r="24" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="2" />
+              <circle cx="36" cy="50" r="3.5" fill="#1E293B" />
+              <circle cx="54" cy="50" r="3.5" fill="#1E293B" />
+              <circle cx="31" cy="57" r="4" fill="#FDA4AF" opacity="0.7" />
+              <circle cx="59" cy="57" r="4" fill="#FDA4AF" opacity="0.7" />
+              <polygon points="42,56 48,56 45,60" fill="#F43F5E" />
+              <path d="M39 63 Q45 68 51 63" fill="none" stroke="#1E293B" strokeWidth="2.2" strokeLinecap="round" />
+            </g>
+            {/* Basket of Colorful Carrots & Flowers */}
+            <g transform="translate(248, 152)">
+              <polygon points="10,20 22,52 34,20" fill="#FB923C" />
+              <path d="M18 20 L14 8 M22 20 L22 6 M26 20 L30 8" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M0 24 L56 24 L48 56 L8 56 Z" fill="#D97706" stroke="#92400E" strokeWidth="2" />
+            </g>
+            <circle cx="88" cy="198" r="7" fill="#F43F5E" />
+            <circle cx="88" cy="198" r="3" fill="#FDE047" />
+            <circle cx="118" cy="208" r="6" fill="#FBBF24" />
+            <circle cx="320" cy="204" r="7" fill="#8B5CF6" />
+            <circle cx="320" cy="204" r="3" fill="#FFFFFF" />
+          </g>
+        );
+
       default:
         return (
           <g>

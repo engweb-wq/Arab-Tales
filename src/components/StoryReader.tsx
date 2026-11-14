@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Headphones,
   Heart,
   HelpCircle,
   Lightbulb,
@@ -15,6 +16,8 @@ import {
   Pause,
   Play,
   RotateCcw,
+  SkipBack,
+  SkipForward,
   Sparkles,
   Square,
   Sun,
@@ -53,6 +56,20 @@ type FontSizeLevel = 'sm' | 'md' | 'lg';
 type ReadingMode = 'continuous' | 'step';
 type DeckTab = 'lessons' | 'quiz' | 'practice';
 
+interface AudioQueueItem {
+  queueIndex: number;
+  paragraphIndex: number;
+  sentenceIndex: number;
+  text: string;
+}
+
+function splitIntoSentences(paragraph: string): string[] {
+  const raw = paragraph.match(/[^.!؟؛]+(?:[.!؟؛]+[»"”)]*\s*|\s*$)/g);
+  if (!raw || raw.length === 0) return [paragraph];
+  const filtered = raw.filter((s) => s.trim().length > 0);
+  return filtered.length > 0 ? filtered : [paragraph];
+}
+
 export const StoryReader: React.FC<StoryReaderProps> = ({
   story,
   allStories,
@@ -77,6 +94,9 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
   const [highlightGlossary, setHighlightGlossary] = useState(true);
   const [activeGlossaryTerm, setActiveGlossaryTerm] =
     useState<GlossaryTerm | null>(null);
+  const [revealedPromptHints, setRevealedPromptHints] = useState<
+    Record<number, boolean>
+  >({});
 
   // Quiz state
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
@@ -90,13 +110,14 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [speechRate, setSpeechRate] = useState<0.85 | 1 | 1.15>(0.85);
-  const [activeSpokenParagraph, setActiveSpokenParagraph] = useState<number | null>(null);
+  const [activeQueueIndex, setActiveQueueIndex] = useState<number | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const speakingCancelledRef = useRef(false);
   const speechRateRef = useRef(speechRate);
   speechRateRef.current = speechRate;
   const readingModeRef = useRef(readingMode);
   readingModeRef.current = readingMode;
+  const activeSentenceElRef = useRef<HTMLSpanElement | null>(null);
 
   const isCompleted = progress.completedStoryIds.includes(story.id);
   const isFavorite = progress.favoriteStoryIds.includes(story.id);
@@ -118,6 +139,31 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
       ? allStories[currentStoryIndex + 1]
       : null;
 
+  const storySentencesByParagraph = useMemo(
+    () => story.paragraphs.map(splitIntoSentences),
+    [story.paragraphs]
+  );
+
+  const audioQueue = useMemo<AudioQueueItem[]>(() => {
+    const items: AudioQueueItem[] = [];
+    storySentencesByParagraph.forEach((sentences, pIdx) => {
+      sentences.forEach((sentence, sIdx) => {
+        items.push({
+          queueIndex: items.length,
+          paragraphIndex: pIdx,
+          sentenceIndex: sIdx,
+          text: sentence,
+        });
+      });
+    });
+    return items;
+  }, [storySentencesByParagraph]);
+
+  const activeAudioItem =
+    activeQueueIndex !== null && activeQueueIndex >= 0
+      ? audioQueue[activeQueueIndex] ?? null
+      : null;
+
   const stopSpeech = () => {
     speakingCancelledRef.current = true;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -125,7 +171,7 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     }
     setIsSpeaking(false);
     setIsPaused(false);
-    setActiveSpokenParagraph(null);
+    setActiveQueueIndex(null);
   };
 
   // Load available browser TTS voices (including async voiceschanged)
@@ -159,6 +205,7 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     setActiveTab('lessons');
     setShowColoringStudio(false);
     setActiveGlossaryTerm(null);
+    setRevealedPromptHints({});
     window.scrollTo({ top: 0, behavior: 'smooth' });
     return () => {
       stopSpeech();
@@ -196,8 +243,23 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     );
   }, [voices]);
 
-  const speakParagraphs = (startFromIndex: number, includeTitle = false) => {
-    if (!speechSupported) return;
+  // Auto-scroll highlighted sentence gently into view during continuous Audiobook playback
+  useEffect(() => {
+    if (
+      isSpeaking &&
+      activeQueueIndex !== null &&
+      activeQueueIndex >= 0 &&
+      readingMode === 'continuous'
+    ) {
+      activeSentenceElRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [isSpeaking, activeQueueIndex, readingMode]);
+
+  const speakFromQueueIndex = (startQueueIdx: number, includeTitle = false) => {
+    if (!speechSupported || audioQueue.length === 0) return;
     window.speechSynthesis.cancel();
     speakingCancelledRef.current = false;
     setSpeechError(null);
@@ -208,18 +270,17 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
       preferredArabicVoice ??
       activeList.find((v) => v.lang.toLowerCase().startsWith('ar'));
 
-    const speakSegment = (idx: number, speakingTitleFirst: boolean) => {
+    const speakSegment = (qIdx: number, speakingTitleFirst: boolean) => {
       if (speakingCancelledRef.current) return;
-      if (!speakingTitleFirst && idx >= story.paragraphs.length) {
+      if (!speakingTitleFirst && qIdx >= audioQueue.length) {
         setIsSpeaking(false);
         setIsPaused(false);
-        setActiveSpokenParagraph(null);
+        setActiveQueueIndex(null);
         return;
       }
 
-      const textToRead = speakingTitleFirst
-        ? story.title
-        : story.paragraphs[idx];
+      const queueItem = audioQueue[qIdx];
+      const textToRead = speakingTitleFirst ? story.title : queueItem.text;
       const utterance = new SpeechSynthesisUtterance(textToRead);
       utterance.lang = arabicVoice?.lang ?? 'ar-SA';
       utterance.rate = speechRateRef.current;
@@ -229,10 +290,12 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
       }
 
       utterance.onstart = () => {
-        if (!speakingTitleFirst) {
-          setActiveSpokenParagraph(idx);
+        if (speakingTitleFirst) {
+          setActiveQueueIndex(-1);
+        } else {
+          setActiveQueueIndex(qIdx);
           if (readingModeRef.current === 'step') {
-            setStepIndex(idx);
+            setStepIndex(queueItem.paragraphIndex);
           }
         }
       };
@@ -240,19 +303,23 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
       utterance.onend = () => {
         if (speakingCancelledRef.current) return;
         if (speakingTitleFirst) {
-          speakSegment(idx, false);
+          speakSegment(qIdx, false);
         } else {
-          speakSegment(idx + 1, false);
+          speakSegment(qIdx + 1, false);
         }
       };
 
       utterance.onerror = (event) => {
-        if (speakingCancelledRef.current || event.error === 'interrupted' || event.error === 'canceled') {
+        if (
+          speakingCancelledRef.current ||
+          event.error === 'interrupted' ||
+          event.error === 'canceled'
+        ) {
           return;
         }
         setIsSpeaking(false);
         setIsPaused(false);
-        setActiveSpokenParagraph(null);
+        setActiveQueueIndex(null);
         setSpeechError('تعذّر تشغيل الصوت في هذا المتصفح، يمكنك متابعة القراءة نصياً.');
       };
 
@@ -261,15 +328,33 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
 
     setIsSpeaking(true);
     setIsPaused(false);
-    speakSegment(startFromIndex, includeTitle && startFromIndex === 0);
+    speakSegment(startQueueIdx, includeTitle && startQueueIdx === 0);
+  };
+
+  const speakParagraphFrom = (paragraphIdx: number, includeTitle = false) => {
+    const firstSentenceIdx = audioQueue.findIndex(
+      (item) => item.paragraphIndex === paragraphIdx
+    );
+    speakFromQueueIndex(firstSentenceIdx >= 0 ? firstSentenceIdx : 0, includeTitle);
+  };
+
+  const handleStepAudio = (delta: -1 | 1) => {
+    if (!speechSupported || audioQueue.length === 0) return;
+    const baseIdx =
+      activeQueueIndex !== null && activeQueueIndex >= 0 ? activeQueueIndex : 0;
+    const targetIdx = Math.max(
+      0,
+      Math.min(audioQueue.length - 1, baseIdx + delta)
+    );
+    speakFromQueueIndex(targetIdx, false);
   };
 
   const handleTogglePlayPause = () => {
     if (!speechSupported) return;
 
     if (!isSpeaking) {
-      const startIndex = readingMode === 'step' ? stepIndex : 0;
-      speakParagraphs(startIndex, startIndex === 0);
+      const startParagraph = readingMode === 'step' ? stepIndex : 0;
+      speakParagraphFrom(startParagraph, startParagraph === 0);
       return;
     }
 
@@ -286,8 +371,9 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     setSpeechRate(newRate);
     speechRateRef.current = newRate;
     if (isSpeaking && !isPaused) {
-      const resumeIdx = activeSpokenParagraph ?? (readingMode === 'step' ? stepIndex : 0);
-      speakParagraphs(resumeIdx, false);
+      const resumeQueueIdx =
+        activeQueueIndex !== null && activeQueueIndex >= 0 ? activeQueueIndex : 0;
+      speakFromQueueIndex(resumeQueueIdx, false);
     }
   };
 
@@ -334,11 +420,11 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     window.speechSynthesis.speak(utterance);
   };
 
-  const renderInteractiveParagraph = (paragraph: string) => {
+  const renderGlossarySegments = (text: string) => {
     if (!highlightGlossary) {
-      return paragraph;
+      return text;
     }
-    const segments = tokenizeParagraphWithGlossary(paragraph);
+    const segments = tokenizeParagraphWithGlossary(text);
     return segments.map((seg, i) => {
       if (!seg.term) {
         return <React.Fragment key={i}>{seg.text}</React.Fragment>;
@@ -349,7 +435,10 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
         <button
           key={i}
           type="button"
-          onClick={() => setActiveGlossaryTerm(term)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setActiveGlossaryTerm(term);
+          }}
           title={`اضغط لمعرفة معنى: ${term.word}`}
           className={`inline underline decoration-dotted decoration-2 underline-offset-4 rounded px-0.5 transition-colors cursor-pointer font-medium ${
             isSelected
@@ -359,6 +448,32 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
         >
           {seg.text}
         </button>
+      );
+    });
+  };
+
+  const renderInteractiveParagraph = (paragraphIdx: number) => {
+    const sentences =
+      storySentencesByParagraph[paragraphIdx] ?? [story.paragraphs[paragraphIdx]];
+
+    return sentences.map((sentenceText, sIdx) => {
+      const isCurrentSentence =
+        isSpeaking &&
+        activeAudioItem?.paragraphIndex === paragraphIdx &&
+        activeAudioItem?.sentenceIndex === sIdx;
+
+      return (
+        <span
+          key={sIdx}
+          ref={isCurrentSentence ? activeSentenceElRef : undefined}
+          className={`transition-colors duration-200 ${
+            isCurrentSentence
+              ? 'bg-amber-100/95 dark:bg-amber-900/55 text-[#1C2421] dark:text-amber-50 rounded-md px-1.5 py-0.5 ring-1 ring-amber-300 dark:ring-amber-600'
+              : ''
+          }`}
+        >
+          {renderGlossarySegments(sentenceText)}
+        </span>
       );
     });
   };
@@ -574,10 +689,26 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
               </blockquote>
             )}
 
-            {/* Dedicated Child-Friendly Text-to-Speech Audio Player */}
+            {/* Dedicated Child-Friendly Audiobook Player with Sentence Highlighting */}
             <div className="rounded-xl border border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/70 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#E6E0D4]/80 dark:border-slate-700">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#1C2421] dark:text-slate-100">
+                  <Headphones className="w-4 h-4 text-[#0D7A5F] dark:text-emerald-400 shrink-0" />
+                  <span>مشغل القصة الصوتي (Audiobook)</span>
+                </div>
+                <span className="text-[11px] text-[#64706B] dark:text-slate-400 tabular-nums">
+                  {speechSupported
+                    ? isSpeaking
+                      ? activeAudioItem
+                        ? `الجملة ${activeAudioItem.queueIndex + 1} من ${audioQueue.length}`
+                        : 'جاري قراءة عنوان القصة...'
+                      : `${audioQueue.length} جملة جاهزة للاستماع`
+                    : 'المتصفح لا يدعم القراءة الصوتية'}
+                </span>
+              </div>
+
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
                   <button
                     type="button"
                     disabled={!speechSupported}
@@ -596,53 +727,105 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
                         ) : (
                           <Volume2 className="w-4 h-4" />
                         )}
-                        <span>{isPaused ? 'استئناف القراءة الصوتية' : 'تشغيل القراءة الصوتية'}</span>
+                        <span>{isPaused ? 'استئناف الصوت' : 'استمع للقصة'}</span>
                       </>
                     )}
                   </button>
 
                   {isSpeaking && (
-                    <button
-                      type="button"
-                      onClick={stopSpeech}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#4B5853] dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer shrink-0"
-                    >
-                      <Square className="w-3.5 h-3.5 fill-current" />
-                      <span>إيقاف</span>
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        disabled={!activeAudioItem || activeAudioItem.queueIndex <= 0}
+                        onClick={() => handleStepAudio(-1)}
+                        aria-label="الجملة السابقة"
+                        title="الجملة السابقة"
+                        className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#1C2421] dark:text-slate-200 disabled:opacity-40 cursor-pointer shrink-0"
+                      >
+                        <SkipForward className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">السابقة</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={
+                          !activeAudioItem ||
+                          activeAudioItem.queueIndex >= audioQueue.length - 1
+                        }
+                        onClick={() => handleStepAudio(1)}
+                        aria-label="الجملة التالية"
+                        title="الجملة التالية"
+                        className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#1C2421] dark:text-slate-200 disabled:opacity-40 cursor-pointer shrink-0"
+                      >
+                        <span className="hidden sm:inline">التالية</span>
+                        <SkipBack className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={stopSpeech}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#4B5853] dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer shrink-0"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-current" />
+                        <span>إيقاف</span>
+                      </button>
+                    </>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-[#64706B] dark:text-slate-400">
-                  {speechSupported ? (
-                    <span>
-                      {isSpeaking
-                        ? activeSpokenParagraph !== null
-                          ? `جاري قراءة الفقرة ${activeSpokenParagraph + 1} من ${story.paragraphs.length}`
-                          : 'جاري قراءة عنوان القصة...'
-                        : 'اضغط للاستماع بصوت واضح ومريح للأطفال'}
-                    </span>
-                  ) : (
-                    <span>المتصفح الحالي لا يدعم القراءة الصوتية التلقائية.</span>
-                  )}
-                </div>
+                {/* Speed Selector */}
+                {speechSupported && (
+                  <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-[#E6E0D4] dark:border-slate-700 p-1 rounded-lg">
+                    {([
+                      { rate: 0.85, label: 'هادئ' },
+                      { rate: 1, label: 'عادي' },
+                      { rate: 1.15, label: 'سريع' },
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.rate}
+                        type="button"
+                        onClick={() => handleRateChange(opt.rate)}
+                        className={`px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer ${
+                          speechRate === opt.rate
+                            ? 'bg-[#0D7A5F] text-white dark:bg-emerald-600'
+                            : 'text-[#64706B] dark:text-slate-400 hover:text-[#1C2421] dark:hover:text-white'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {isSpeaking && activeSpokenParagraph !== null && (
-                <div className="flex items-center gap-1.5" aria-label="تقدم القراءة الصوتية">
-                  {story.paragraphs.map((_, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => speakParagraphs(idx, false)}
-                      aria-label={`تشغيل الصوت من الفقرة ${idx + 1}`}
-                      className={`h-1.5 flex-1 rounded-full transition-colors cursor-pointer ${
-                        idx <= activeSpokenParagraph
-                          ? 'bg-[#0D7A5F] dark:bg-emerald-400'
-                          : 'bg-[#E6E0D4] dark:bg-slate-700 hover:bg-[#D5CDBA]'
-                      }`}
-                    />
-                  ))}
+              {/* Active Sentence Progress Bar & Live Highlight Preview */}
+              {isSpeaking && activeAudioItem && (
+                <div className="space-y-2 pt-1">
+                  <div
+                    className="flex items-center gap-1"
+                    aria-label="تقدم الجمل في الكتاب الصوتي"
+                  >
+                    {audioQueue.map((item) => (
+                      <button
+                        key={item.queueIndex}
+                        type="button"
+                        onClick={() => speakFromQueueIndex(item.queueIndex, false)}
+                        aria-label={`تشغيل الجملة ${item.queueIndex + 1}`}
+                        className={`h-1.5 flex-1 rounded-full transition-colors cursor-pointer ${
+                          item.queueIndex <= activeAudioItem.queueIndex
+                            ? 'bg-[#0D7A5F] dark:bg-emerald-400'
+                            : 'bg-[#E6E0D4] dark:bg-slate-700 hover:bg-[#D5CDBA]'
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <p className="text-xs sm:text-sm text-[#1C2421] dark:text-amber-100 bg-amber-50/80 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 rounded-lg px-3 py-2 leading-relaxed">
+                    <span className="font-bold text-[#9A670E] dark:text-amber-300 ml-1.5">
+                      يُقرأ الآن:
+                    </span>
+                    {activeAudioItem.text}
+                  </p>
                 </div>
               )}
 
@@ -703,35 +886,71 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
             {/* Story Body: Continuous vs Step-by-step */}
             {readingMode === 'continuous' ? (
               <div className="space-y-4">
-                {story.paragraphs.map((para, idx) => {
-                  const isCurrentlySpoken = activeSpokenParagraph === idx;
+                {story.paragraphs.map((_, idx) => {
+                  const isCurrentlySpoken =
+                    isSpeaking && activeAudioItem?.paragraphIndex === idx;
+                  const inlinePrompt = story.inStoryPrompts?.[idx];
+                  const isHintShown = !!revealedPromptHints[idx];
+
                   return (
-                    <div
-                      key={idx}
-                      className={`group flex items-start gap-2.5 rounded-lg transition-colors ${
-                        isCurrentlySpoken
-                          ? 'bg-emerald-50/90 dark:bg-emerald-950/40 px-3 py-2.5 -mx-3'
-                          : ''
-                      }`}
-                    >
-                      {speechSupported && (
-                        <button
-                          type="button"
-                          onClick={() => speakParagraphs(idx, false)}
-                          aria-label={`استمع للفقرة ${idx + 1}`}
-                          title="استمع من هذه الفقرة"
-                          className={`mt-1.5 p-1.5 rounded-md transition-opacity cursor-pointer shrink-0 ${
-                            isCurrentlySpoken
-                              ? 'text-[#0D7A5F] dark:text-emerald-400 opacity-100'
-                              : 'text-[#64706B] dark:text-slate-400 opacity-50 group-hover:opacity-100 hover:bg-[#F3EFE6] dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          <Volume2 className="w-4 h-4" />
-                        </button>
+                    <div key={idx} className="space-y-3">
+                      <div
+                        className={`group flex items-start gap-2.5 rounded-lg transition-colors ${
+                          isCurrentlySpoken
+                            ? 'bg-emerald-50/70 dark:bg-emerald-950/30 px-3 py-2.5 -mx-3'
+                            : ''
+                        }`}
+                      >
+                        {speechSupported && (
+                          <button
+                            type="button"
+                            onClick={() => speakParagraphFrom(idx, false)}
+                            aria-label={`استمع للفقرة ${idx + 1}`}
+                            title="استمع من هذه الفقرة"
+                            className={`mt-1.5 p-1.5 rounded-md transition-opacity cursor-pointer shrink-0 ${
+                              isCurrentlySpoken
+                                ? 'text-[#0D7A5F] dark:text-emerald-400 opacity-100'
+                                : 'text-[#64706B] dark:text-slate-400 opacity-50 group-hover:opacity-100 hover:bg-[#F3EFE6] dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <Volume2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <p className={`${fontSizeClasses[fontSize]} text-[#1C2421] dark:text-slate-200 flex-1`}>
+                          {renderInteractiveParagraph(idx)}
+                        </p>
+                      </div>
+
+                      {inlinePrompt && (
+                        <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/25 p-4 space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#9A670E] dark:text-amber-300">
+                              <HelpCircle className="w-4 h-4 shrink-0" />
+                              <span>سؤال تفكير للقارئ الصغير أثناء السرد</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRevealedPromptHints((prev) => ({
+                                  ...prev,
+                                  [idx]: !prev[idx],
+                                }))
+                              }
+                              className="text-xs font-medium text-[#0D7A5F] dark:text-emerald-400 hover:underline cursor-pointer shrink-0"
+                            >
+                              {isHintShown ? 'إخفاء الفكرة' : 'فكّر ثم اعرض الفكرة'}
+                            </button>
+                          </div>
+                          <p className="text-sm font-medium text-[#1C2421] dark:text-slate-100 leading-relaxed">
+                            {inlinePrompt.question}
+                          </p>
+                          {isHintShown && (
+                            <p className="text-xs sm:text-sm text-[#4B5853] dark:text-slate-300 bg-white/80 dark:bg-slate-900/70 rounded-lg border border-amber-200/80 dark:border-amber-800/50 p-3 leading-relaxed">
+                              {inlinePrompt.hint}
+                            </p>
+                          )}
+                        </div>
                       )}
-                      <p className={`${fontSizeClasses[fontSize]} text-[#1C2421] dark:text-slate-200 flex-1`}>
-                        {renderInteractiveParagraph(para)}
-                      </p>
                     </div>
                   );
                 })}
@@ -761,13 +980,45 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
 
                 <div className="min-h-[180px] flex flex-col justify-between gap-4 bg-[#FAF8F4] dark:bg-slate-800/60 border border-[#E6E0D4] dark:border-slate-700 rounded-xl p-6">
                   <p className={`${fontSizeClasses[fontSize]} text-[#1C2421] dark:text-slate-100`}>
-                    {renderInteractiveParagraph(story.paragraphs[stepIndex])}
+                    {renderInteractiveParagraph(stepIndex)}
                   </p>
+                  {story.inStoryPrompts?.[stepIndex] && (
+                    <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#9A670E] dark:text-amber-300">
+                          <HelpCircle className="w-4 h-4 shrink-0" />
+                          <span>سؤال تفكير للقارئ الصغير</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRevealedPromptHints((prev) => ({
+                              ...prev,
+                              [stepIndex]: !prev[stepIndex],
+                            }))
+                          }
+                          className="text-xs font-medium text-[#0D7A5F] dark:text-emerald-400 hover:underline cursor-pointer shrink-0"
+                        >
+                          {revealedPromptHints[stepIndex]
+                            ? 'إخفاء الفكرة'
+                            : 'اعرض الفكرة'}
+                        </button>
+                      </div>
+                      <p className="text-sm font-medium text-[#1C2421] dark:text-slate-100 leading-relaxed">
+                        {story.inStoryPrompts[stepIndex].question}
+                      </p>
+                      {revealedPromptHints[stepIndex] && (
+                        <p className="text-xs text-[#4B5853] dark:text-slate-300 bg-white/80 dark:bg-slate-900/70 rounded-lg p-2.5 leading-relaxed">
+                          {story.inStoryPrompts[stepIndex].hint}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {speechSupported && (
                     <div className="flex justify-end">
                       <button
                         type="button"
-                        onClick={() => speakParagraphs(stepIndex, false)}
+                        onClick={() => speakParagraphFrom(stepIndex, false)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#0D7A5F] dark:text-emerald-400 hover:bg-[#F3EFE6] dark:hover:bg-slate-800 cursor-pointer"
                       >
                         <Volume2 className="w-3.5 h-3.5" />

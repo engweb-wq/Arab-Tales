@@ -58,7 +58,13 @@ export type IllustrationId =
   | 'elephant-nelson'
   | 'frogs-tower'
   | 'tamer-cat'
-  | 'school-poem';
+  | 'school-poem'
+  | 'rainbow-rabbit';
+
+export interface InStoryPrompt {
+  question: string;
+  hint: string;
+}
 
 export interface QuizQuestion {
   question: string;
@@ -90,6 +96,7 @@ export interface Story {
     reference: string;
   };
   paragraphs: string[];
+  inStoryPrompts?: Record<number, InStoryPrompt>;
   lessons: StoryLesson[];
   quiz: QuizQuestion[];
   dailyChallenge: string;

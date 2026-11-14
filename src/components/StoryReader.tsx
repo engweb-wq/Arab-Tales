@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
+  BookMarked,
   BookOpen,
   CheckCircle2,
   ChevronLeft,
@@ -18,13 +19,20 @@ import {
   Square,
   Sun,
   Volume2,
+  X,
 } from 'lucide-react';
 import { Story, UserProgress } from '../types/story';
 import { STORY_CATEGORIES } from '../data/stories';
 import { AGE_GROUP_PROFILES, CARTOON_CHARACTERS } from '../data/characters';
+import {
+  GlossaryTerm,
+  extractStoryGlossaryTerms,
+  tokenizeParagraphWithGlossary,
+} from '../data/glossary';
 import { StoryIllustration } from './StoryIllustration';
 import { CharacterAvatar } from './CharacterAvatar';
 import { CharacterColoringStudio } from './CharacterColoringStudio';
+import { GlossaryIllustration } from './GlossaryIllustration';
 
 interface StoryReaderProps {
   story: Story;
@@ -64,6 +72,11 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
   const [stepIndex, setStepIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<DeckTab>('lessons');
   const [showColoringStudio, setShowColoringStudio] = useState(false);
+
+  // Interactive Glossary state
+  const [highlightGlossary, setHighlightGlossary] = useState(true);
+  const [activeGlossaryTerm, setActiveGlossaryTerm] =
+    useState<GlossaryTerm | null>(null);
 
   // Quiz state
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
@@ -131,6 +144,11 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     };
   }, [speechSupported]);
 
+  const storyGlossaryTerms = useMemo(
+    () => extractStoryGlossaryTerms(story.paragraphs),
+    [story.paragraphs]
+  );
+
   // Reset per-story local state and stop speech when switching stories or unmounting
   useEffect(() => {
     stopSpeech();
@@ -140,11 +158,24 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     setQuizSubmitted(false);
     setActiveTab('lessons');
     setShowColoringStudio(false);
+    setActiveGlossaryTerm(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     return () => {
       stopSpeech();
     };
   }, [story.id]);
+
+  // Close glossary modal cleanly with Escape key
+  useEffect(() => {
+    if (!activeGlossaryTerm) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveGlossaryTerm(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeGlossaryTerm]);
 
   const openAndScrollToColoring = () => {
     setShowColoringStudio(true);
@@ -287,6 +318,49 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
   const handleResetQuiz = () => {
     setSelectedAnswers({});
     setQuizSubmitted(false);
+  };
+
+  const speakGlossaryDefinition = (term: GlossaryTerm) => {
+    if (!speechSupported) return;
+    stopSpeech();
+    const utterance = new SpeechSynthesisUtterance(
+      `${term.word}. ${term.simpleMeaning}`
+    );
+    utterance.lang = preferredArabicVoice?.lang ?? 'ar-SA';
+    if (preferredArabicVoice) {
+      utterance.voice = preferredArabicVoice;
+    }
+    utterance.rate = speechRateRef.current;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const renderInteractiveParagraph = (paragraph: string) => {
+    if (!highlightGlossary) {
+      return paragraph;
+    }
+    const segments = tokenizeParagraphWithGlossary(paragraph);
+    return segments.map((seg, i) => {
+      if (!seg.term) {
+        return <React.Fragment key={i}>{seg.text}</React.Fragment>;
+      }
+      const term = seg.term;
+      const isSelected = activeGlossaryTerm?.id === term.id;
+      return (
+        <button
+          key={i}
+          type="button"
+          onClick={() => setActiveGlossaryTerm(term)}
+          title={`اضغط لمعرفة معنى: ${term.word}`}
+          className={`inline underline decoration-dotted decoration-2 underline-offset-4 rounded px-0.5 transition-colors cursor-pointer font-medium ${
+            isSelected
+              ? 'bg-amber-100 dark:bg-amber-900/60 decoration-[#0D7A5F] dark:decoration-emerald-400 text-[#1C2421] dark:text-white'
+              : 'decoration-[#C88A1E] dark:decoration-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50'
+          }`}
+        >
+          {seg.text}
+        </button>
+      );
+    });
   };
 
   return (
@@ -577,6 +651,55 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
               )}
             </div>
 
+            {/* Interactive Glossary Quick Strip */}
+            {storyGlossaryTerms.length > 0 && (
+              <div className="rounded-xl border border-[#E6E0D4] dark:border-slate-700 bg-white dark:bg-slate-900/70 p-4 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#1C2421] dark:text-slate-100">
+                    <BookMarked className="w-4 h-4 text-[#C88A1E] dark:text-amber-400 shrink-0" />
+                    <span>
+                      قاموس القصة التفاعلي ({storyGlossaryTerms.length} كلمات)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHighlightGlossary((prev) => !prev)}
+                    className={`px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors cursor-pointer ${
+                      highlightGlossary
+                        ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-[#9A670E] dark:text-amber-300'
+                        : 'border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800 text-[#64706B] dark:text-slate-400'
+                    }`}
+                  >
+                    {highlightGlossary ? 'تمييز الكلمات: مفعّل' : 'تمييز الكلمات: متوقف'}
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-[#64706B] dark:text-slate-400">
+                  اضغط على أي كلمة مسطّرة داخل القصة أو اختر كلمة من القائمة لرؤية معناها وصورتها التوضيحية:
+                </p>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {storyGlossaryTerms.map((term) => {
+                    const isOpen = activeGlossaryTerm?.id === term.id;
+                    return (
+                      <button
+                        key={term.id}
+                        type="button"
+                        onClick={() => setActiveGlossaryTerm(term)}
+                        className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                          isOpen
+                            ? 'border-[#0D7A5F] bg-[#0D7A5F] text-white dark:border-emerald-500 dark:bg-emerald-600'
+                            : 'border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800 text-[#1C2421] dark:text-slate-200 hover:border-[#C88A1E]'
+                        }`}
+                      >
+                        {term.word}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Story Body: Continuous vs Step-by-step */}
             {readingMode === 'continuous' ? (
               <div className="space-y-4">
@@ -607,7 +730,7 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
                         </button>
                       )}
                       <p className={`${fontSizeClasses[fontSize]} text-[#1C2421] dark:text-slate-200 flex-1`}>
-                        {para}
+                        {renderInteractiveParagraph(para)}
                       </p>
                     </div>
                   );
@@ -638,7 +761,7 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
 
                 <div className="min-h-[180px] flex flex-col justify-between gap-4 bg-[#FAF8F4] dark:bg-slate-800/60 border border-[#E6E0D4] dark:border-slate-700 rounded-xl p-6">
                   <p className={`${fontSizeClasses[fontSize]} text-[#1C2421] dark:text-slate-100`}>
-                    {story.paragraphs[stepIndex]}
+                    {renderInteractiveParagraph(story.paragraphs[stepIndex])}
                   </p>
                   {speechSupported && (
                     <div className="flex justify-end">
@@ -1071,6 +1194,123 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
           </div>
         </aside>
       </div>
+
+      {/* Interactive Glossary Word Definition Dialog */}
+      {activeGlossaryTerm && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[2px] flex items-center justify-center p-4"
+          onClick={() => setActiveGlossaryTerm(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="glossary-modal-word"
+        >
+          <div
+            className="w-full max-w-lg bg-white dark:bg-slate-900 border border-[#E6E0D4] dark:border-slate-700 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-[#F0EBE0] dark:border-slate-800">
+              <div>
+                <span className="text-[11px] font-medium text-[#C88A1E] dark:text-amber-400">
+                  قاموس المصطلحات التفاعلي · {activeGlossaryTerm.category}
+                </span>
+                <h3
+                  id="glossary-modal-word"
+                  className="font-serif-arabic text-2xl font-bold text-[#1C2421] dark:text-slate-100 mt-0.5"
+                >
+                  {activeGlossaryTerm.word}
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveGlossaryTerm(null)}
+                aria-label="إغلاق بطاقة القاموس"
+                className="p-1.5 rounded-lg text-[#64706B] hover:bg-[#FAF8F4] dark:hover:bg-slate-800 hover:text-[#1C2421] dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+              <GlossaryIllustration kind={activeGlossaryTerm.illustration} />
+
+              <div className="space-y-3 flex-1">
+                <div>
+                  <p className="text-xs font-bold text-[#0D7A5F] dark:text-emerald-400 mb-1">
+                    المعنى المبسط:
+                  </p>
+                  <p className="text-sm text-[#1C2421] dark:text-slate-200 leading-relaxed">
+                    {activeGlossaryTerm.simpleMeaning}
+                  </p>
+                </div>
+
+                <div className="rounded-lg bg-[#FAF8F4] dark:bg-slate-800/70 border border-[#E6E0D4] dark:border-slate-700 p-3">
+                  <p className="text-[11px] font-bold text-[#64706B] dark:text-slate-400 mb-0.5">
+                    مثال توضيحي:
+                  </p>
+                  <p className="text-xs sm:text-sm text-[#4B5853] dark:text-slate-300 leading-relaxed">
+                    «{activeGlossaryTerm.exampleSentence}»
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-[#F0EBE0] dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+              {speechSupported ? (
+                <button
+                  type="button"
+                  onClick={() => speakGlossaryDefinition(activeGlossaryTerm)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 text-white cursor-pointer"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>استمع للشرح</span>
+                </button>
+              ) : (
+                <span />
+              )}
+
+              {storyGlossaryTerms.length > 1 && (
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const currentIdx = storyGlossaryTerms.findIndex(
+                      (t) => t.id === activeGlossaryTerm.id
+                    );
+                    const prevTerm =
+                      currentIdx > 0
+                        ? storyGlossaryTerms[currentIdx - 1]
+                        : storyGlossaryTerms[storyGlossaryTerms.length - 1];
+                    const nextTerm =
+                      currentIdx >= 0 &&
+                      currentIdx < storyGlossaryTerms.length - 1
+                        ? storyGlossaryTerms[currentIdx + 1]
+                        : storyGlossaryTerms[0];
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setActiveGlossaryTerm(prevTerm)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-700 text-[#1C2421] dark:text-slate-200 hover:bg-[#FAF8F4] dark:hover:bg-slate-800 cursor-pointer"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                          <span>كلمة سابقة</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveGlossaryTerm(nextTerm)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-[#E6E0D4] dark:border-slate-700 text-[#1C2421] dark:text-slate-200 hover:bg-[#FAF8F4] dark:hover:bg-slate-800 cursor-pointer"
+                        >
+                          <span>كلمة تالية</span>
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

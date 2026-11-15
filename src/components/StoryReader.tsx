@@ -42,6 +42,7 @@ import {
   AmbientSceneId,
   getAmbientSceneForStory,
 } from '../utils/ambientAudio';
+import { getQuizQuestionHint, playHintUnlockChime } from '../utils/quizHints';
 import { StoryIllustration } from './StoryIllustration';
 import { CharacterAvatar } from './CharacterAvatar';
 import { CharacterColoringStudio } from './CharacterColoringStudio';
@@ -108,8 +109,18 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     Record<number, boolean>
   >({});
 
-  // Quiz state
+  // Quiz state with 2-wrong-attempts interactive hints
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+  const [wrongAttemptsByQuestion, setWrongAttemptsByQuestion] = useState<
+    Record<number, number>
+  >({});
+  const [solvedQuestions, setSolvedQuestions] = useState<Record<number, boolean>>(
+    {}
+  );
+  const [autoSpeakHints, setAutoSpeakHints] = useState(true);
+  const [speakingHintQuestionIdx, setSpeakingHintQuestionIdx] = useState<
+    number | null
+  >(null);
   const [quizSubmitted, setQuizSubmitted] = useState(false);
 
   // Audio / Speech Synthesis state
@@ -190,6 +201,7 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     setIsSpeaking(false);
     setIsPaused(false);
     setActiveQueueIndex(null);
+    setSpeakingHintQuestionIdx(null);
   };
 
   // Load available browser TTS voices (including async voiceschanged)
@@ -250,6 +262,9 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     setSpeechError(null);
     setStepIndex(0);
     setSelectedAnswers({});
+    setWrongAttemptsByQuestion({});
+    setSolvedQuestions({});
+    setSpeakingHintQuestionIdx(null);
     setQuizSubmitted(false);
     setActiveTab('lessons');
     setShowColoringStudio(false);
@@ -432,26 +447,127 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
     lg: 'text-xl sm:text-[1.32rem] leading-[2]',
   };
 
-  const allQuestionsAnswered =
+  const allQuestionsSolved =
     story.quiz.length > 0 &&
-    story.quiz.every((_, idx) => selectedAnswers[idx] !== undefined);
+    story.quiz.every((_, idx) => Boolean(solvedQuestions[idx]));
 
-  const currentQuizScore = story.quiz.reduce(
-    (acc, q, idx) => (selectedAnswers[idx] === q.correctIndex ? acc + 1 : acc),
+  const solvedCount = story.quiz.reduce(
+    (acc, _, idx) => (solvedQuestions[idx] ? acc + 1 : acc),
     0
   );
 
+  const firstTryQuizScore = story.quiz.reduce(
+    (acc, q, idx) =>
+      solvedQuestions[idx] &&
+      selectedAnswers[idx] === q.correctIndex &&
+      (wrongAttemptsByQuestion[idx] ?? 0) === 0
+        ? acc + 1
+        : acc,
+    0
+  );
+
+  const hintsUsedCount = story.quiz.reduce(
+    (acc, _, idx) => ((wrongAttemptsByQuestion[idx] ?? 0) >= 2 ? acc + 1 : acc),
+    0
+  );
+
+  const stopQuizHintVoice = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setSpeakingHintQuestionIdx(null);
+  };
+
+  const speakQuizHint = (qIndex: number, hintText: string) => {
+    if (!speechSupported) return;
+    if (speakingHintQuestionIdx === qIndex) {
+      stopQuizHintVoice();
+      return;
+    }
+
+    if (isSpeaking) {
+      stopSpeech();
+    } else {
+      window.speechSynthesis.cancel();
+    }
+
+    const activeList =
+      voices.length > 0 ? voices : window.speechSynthesis.getVoices();
+    const arabicVoice =
+      preferredArabicVoice ??
+      activeList.find((v) => v.lang.toLowerCase().startsWith('ar'));
+
+    const utterance = new SpeechSynthesisUtterance(hintText);
+    utterance.lang = arabicVoice?.lang ?? 'ar-SA';
+    utterance.rate = speechRateRef.current;
+    utterance.pitch = 1.04;
+    if (arabicVoice) {
+      utterance.voice = arabicVoice;
+    }
+
+    utterance.onstart = () => {
+      setSpeakingHintQuestionIdx(qIndex);
+    };
+    utterance.onend = () => {
+      setSpeakingHintQuestionIdx((prev) => (prev === qIndex ? null : prev));
+    };
+    utterance.onerror = () => {
+      setSpeakingHintQuestionIdx((prev) => (prev === qIndex ? null : prev));
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleSelectQuizOption = (qIndex: number, optIdx: number) => {
+    if (quizSubmitted || solvedQuestions[qIndex]) return;
+    const q = story.quiz[qIndex];
+    if (!q) return;
+
+    // Avoid counting the exact same highlighted wrong choice twice consecutively
+    if (selectedAnswers[qIndex] === optIdx && optIdx !== q.correctIndex) {
+      return;
+    }
+
+    setSelectedAnswers((prev) => ({ ...prev, [qIndex]: optIdx }));
+
+    if (optIdx === q.correctIndex) {
+      setSolvedQuestions((prev) => ({ ...prev, [qIndex]: true }));
+      if (speakingHintQuestionIdx === qIndex) {
+        stopQuizHintVoice();
+      }
+      return;
+    }
+
+    const nextWrongCount = (wrongAttemptsByQuestion[qIndex] ?? 0) + 1;
+    setWrongAttemptsByQuestion((prev) => ({
+      ...prev,
+      [qIndex]: nextWrongCount,
+    }));
+
+    if (nextWrongCount === 2) {
+      playHintUnlockChime();
+      if (autoSpeakHints && speechSupported && !isSpeaking) {
+        const hintText = getQuizQuestionHint(story, q, qIndex);
+        speakQuizHint(qIndex, hintText);
+      }
+    }
+  };
+
   const handleSubmitQuiz = () => {
-    if (!allQuestionsAnswered) return;
+    if (!allQuestionsSolved) return;
+    stopQuizHintVoice();
     setQuizSubmitted(true);
-    onRecordQuizScore(story.id, currentQuizScore, story.quiz.length);
+    onRecordQuizScore(story.id, firstTryQuizScore, story.quiz.length);
     if (!isCompleted) {
       onToggleCompleted(story.id);
     }
   };
 
   const handleResetQuiz = () => {
+    stopQuizHintVoice();
     setSelectedAnswers({});
+    setWrongAttemptsByQuestion({});
+    setSolvedQuestions({});
     setQuizSubmitted(false);
   };
 
@@ -1407,7 +1523,7 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
               </div>
             )}
 
-            {/* Tab 2: Interactive Comprehension Quiz */}
+            {/* Tab 2: Interactive Comprehension Quiz with 2-Wrong-Attempts Hints */}
             {activeTab === 'quiz' && (
               <div className="space-y-5">
                 {savedQuiz && !quizSubmitted && (
@@ -1419,20 +1535,70 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
                   </div>
                 )}
 
+                {/* Quiz Progress & Voice Hint Toggle */}
+                <div className="rounded-xl border border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/60 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-[#4B5853] dark:text-slate-300 tabular-nums">
+                    الأسئلة المكتملة:{' '}
+                    <strong className="text-[#0D7A5F] dark:text-emerald-400">
+                      {solvedCount} / {story.quiz.length}
+                    </strong>
+                    {' · '}
+                    تلميح بعد محاولتين
+                  </span>
+
+                  {speechSupported && (
+                    <button
+                      type="button"
+                      onClick={() => setAutoSpeakHints((prev) => !prev)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors cursor-pointer ${
+                        autoSpeakHints
+                          ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-[#9A670E] dark:text-amber-300'
+                          : 'border-[#E6E0D4] dark:border-slate-700 bg-white dark:bg-slate-900 text-[#64706B] dark:text-slate-400'
+                      }`}
+                    >
+                      {autoSpeakHints ? (
+                        <Volume2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <VolumeX className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {autoSpeakHints ? 'نطق التلميح تلقائياً' : 'التلميح نصي فقط'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
                 <div className="space-y-5">
                   {story.quiz.map((q, qIndex) => {
                     const chosen = selectedAnswers[qIndex];
+                    const wrongAttempts = wrongAttemptsByQuestion[qIndex] ?? 0;
+                    const isSolved = Boolean(solvedQuestions[qIndex]);
+                    const showHintBox = !isSolved && wrongAttempts >= 2;
+                    const hintText = showHintBox
+                      ? getQuizQuestionHint(story, q, qIndex)
+                      : '';
+                    const isSpeakingThisHint = speakingHintQuestionIdx === qIndex;
+
                     return (
                       <div
                         key={qIndex}
-                        className="rounded-xl border border-[#E6E0D4] dark:border-slate-800 p-4 space-y-3"
+                        className={`rounded-xl border p-4 space-y-3 transition-colors ${
+                          isSolved
+                            ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/25 dark:bg-emerald-950/15'
+                            : 'border-[#E6E0D4] dark:border-slate-800'
+                        }`}
                       >
-                        <p className="text-sm font-bold text-[#1C2421] dark:text-slate-100 leading-relaxed">
-                          <span className="text-[#0D7A5F] dark:text-emerald-400 ml-1.5 tabular-nums">
-                            {qIndex + 1}.
-                          </span>
-                          {q.question}
-                        </p>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-bold text-[#1C2421] dark:text-slate-100 leading-relaxed">
+                            <span className="text-[#0D7A5F] dark:text-emerald-400 ml-1.5 tabular-nums">
+                              {qIndex + 1}.
+                            </span>
+                            {q.question}
+                          </p>
+                          {isSolved && (
+                            <CheckCircle2 className="w-4 h-4 text-[#0D7A5F] dark:text-emerald-400 shrink-0 mt-1" />
+                          )}
+                        </div>
 
                         <div className="space-y-2">
                           {q.options.map((opt, optIdx) => {
@@ -1442,30 +1608,25 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
                             let optionClass =
                               'border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/60 text-[#1C2421] dark:text-slate-200 hover:border-[#0D7A5F]';
 
-                            if (quizSubmitted) {
+                            if (isSolved || quizSubmitted) {
                               if (isCorrect) {
                                 optionClass =
                                   'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 font-medium';
-                              } else if (isSelected && !isCorrect) {
-                                optionClass =
-                                  'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200';
                               } else {
                                 optionClass =
                                   'border-[#E6E0D4] dark:border-slate-800 bg-white dark:bg-slate-900 text-[#64706B] dark:text-slate-500 opacity-75';
                               }
-                            } else if (isSelected) {
+                            } else if (isSelected && !isCorrect) {
                               optionClass =
-                                'border-[#0D7A5F] dark:border-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/40 text-[#0D7A5F] dark:text-emerald-300 font-medium';
+                                'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200';
                             }
 
                             return (
                               <button
                                 key={optIdx}
                                 type="button"
-                                disabled={quizSubmitted}
-                                onClick={() =>
-                                  setSelectedAnswers((prev) => ({ ...prev, [qIndex]: optIdx }))
-                                }
+                                disabled={quizSubmitted || isSolved}
+                                onClick={() => handleSelectQuizOption(qIndex, optIdx)}
                                 className={`w-full text-right px-3.5 py-2.5 text-xs sm:text-sm rounded-lg border transition-colors cursor-pointer disabled:cursor-default ${optionClass}`}
                               >
                                 {opt}
@@ -1474,10 +1635,73 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
                           })}
                         </div>
 
-                        {quizSubmitted && (
-                          <div className="rounded-lg bg-[#FAF8F4] dark:bg-slate-800/70 border border-[#E6E0D4] dark:border-slate-700 p-3 text-xs text-[#4B5853] dark:text-slate-300 leading-relaxed">
-                            <strong className="text-[#1C2421] dark:text-slate-100">التوضيح: </strong>
-                            {q.explanation}
+                        {/* Gentle nudge after 1st wrong attempt */}
+                        {!isSolved && wrongAttempts === 1 && (
+                          <div className="rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50/70 dark:bg-rose-950/25 px-3 py-2 text-xs text-rose-800 dark:text-rose-200">
+                            إجابة غير دقيقة (المحاولة ١ من ٢) — فكّر قليلاً وجرّب اختياراً آخر، وسيظهر لك تلميح ذكي بعد المحاولة الثانية!
+                          </div>
+                        )}
+
+                        {/* Interactive Text & Voice Hint Card after 2 wrong attempts */}
+                        {showHintBox && (
+                          <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/85 dark:bg-amber-950/35 p-3.5 space-y-2.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <CharacterAvatar id={guideCharacter.id} size="sm" />
+                                <div>
+                                  <p className="text-xs font-bold text-[#9A670E] dark:text-amber-300 flex items-center gap-1">
+                                    <Lightbulb className="w-3.5 h-3.5 shrink-0" />
+                                    <span>تلميح ذكي من {guideCharacter.name}</span>
+                                  </p>
+                                  <p className="text-[11px] text-[#64706B] dark:text-slate-400">
+                                    ظهر بعد محاولتين لمساعدتك دون كشف الحل مباشرة
+                                  </p>
+                                </div>
+                              </div>
+
+                              {speechSupported && (
+                                <button
+                                  type="button"
+                                  onClick={() => speakQuizHint(qIndex, hintText)}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer shrink-0 ${
+                                    isSpeakingThisHint
+                                      ? 'border-rose-300 bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-200'
+                                      : 'border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-[#9A670E] dark:text-amber-300 hover:bg-amber-100/70'
+                                  }`}
+                                >
+                                  {isSpeakingThisHint ? (
+                                    <>
+                                      <Square className="w-3 h-3 fill-current" />
+                                      <span>إيقاف الصوت</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Volume2 className="w-3.5 h-3.5" />
+                                      <span>استمع للتلميح</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+
+                            <p className="text-xs sm:text-sm text-[#1C2421] dark:text-slate-100 bg-white/85 dark:bg-slate-900/70 border border-amber-200/80 dark:border-amber-800/50 rounded-lg p-2.5 leading-relaxed">
+                              {hintText}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Immediate positive explanation when answered correctly */}
+                        {(isSolved || quizSubmitted) && (
+                          <div className="rounded-lg bg-[#FAF8F4] dark:bg-slate-800/70 border border-emerald-200 dark:border-emerald-800/60 p-3 text-xs text-[#4B5853] dark:text-slate-300 leading-relaxed space-y-1">
+                            <p className="font-bold text-[#0D7A5F] dark:text-emerald-400">
+                              {wrongAttempts === 0
+                                ? 'أحسنت! إجابة صحيحة من المحاولة الأولى!'
+                                : 'رائع! وصلت إلى الإجابة الصحيحة بذكاء!'}
+                            </p>
+                            <p>
+                              <strong className="text-[#1C2421] dark:text-slate-100">التوضيح: </strong>
+                              {q.explanation}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -1488,27 +1712,29 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
                 {!quizSubmitted ? (
                   <button
                     type="button"
-                    disabled={!allQuestionsAnswered}
+                    disabled={!allQuestionsSolved}
                     onClick={handleSubmitQuiz}
                     className="w-full py-2.5 px-4 text-sm font-medium rounded-lg bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 text-white disabled:opacity-45 disabled:cursor-not-allowed transition-colors cursor-pointer"
                   >
-                    {allQuestionsAnswered
-                      ? 'تحقق من الإجابات واحصل على النجوم'
-                      : 'أجب عن جميع الأسئلة أولاً'}
+                    {allQuestionsSolved
+                      ? 'احفظ النتيجة واحصل على النجوم'
+                      : `أكمل حل جميع الأسئلة أولاً (${solvedCount}/${story.quiz.length})`}
                   </button>
                 ) : (
                   <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/25 p-4 space-y-3 text-center">
                     <p className="text-base font-bold text-[#1C2421] dark:text-slate-100 tabular-nums">
-                      نتيجتك: {currentQuizScore} من {story.quiz.length}
+                      نتيجتك من المحاولة الأولى: {firstTryQuizScore} من {story.quiz.length}
                     </p>
                     <p className="text-xs font-medium text-[#0D7A5F] dark:text-emerald-400 tabular-nums">
-                      {story.quiz.length > 0 && currentQuizScore / story.quiz.length >= 0.8
-                        ? `درجة عالية مميزة! كسبت +${currentQuizScore * 10 + 15} نقطة (بمكافأة التفوق)`
-                        : `كسبت +${currentQuizScore * 10} نقطة`}
+                      {story.quiz.length > 0 && firstTryQuizScore / story.quiz.length >= 0.8
+                        ? `درجة عالية مميزة! كسبت +${firstTryQuizScore * 10 + 15} نقطة (بمكافأة التفوق)`
+                        : `كسبت +${firstTryQuizScore * 10} نقطة`}
                     </p>
                     <p className="text-xs text-[#4B5853] dark:text-slate-300">
-                      {currentQuizScore === story.quiz.length
-                        ? 'ممتاز! فهمت القصة ودروسها بالكامل.'
+                      {firstTryQuizScore === story.quiz.length
+                        ? 'ممتاز! فهمت القصة ودروسها بالكامل دون أخطاء.'
+                        : hintsUsedCount > 0
+                        ? `أحسنت إتمام جميع الأسئلة! استخدمت التلميحات الذكية في ${hintsUsedCount} سؤال، ويمكنك إعادة الاختبار الآن لتحقيق العلامة الكاملة.`
                         : 'أحسنت المحاولة! راجع التوضيحات ويمكنك المحاولة مرة أخرى.'}
                     </p>
                     <div className="flex flex-wrap items-center justify-center gap-2 pt-1">

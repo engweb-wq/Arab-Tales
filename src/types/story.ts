@@ -77,6 +77,7 @@ export interface QuizQuestion {
   options: string[];
   correctIndex: number;
   explanation: string;
+  hint?: string;
 }
 
 export interface StoryLesson {

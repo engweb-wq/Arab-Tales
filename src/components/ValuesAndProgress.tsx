@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Award,
   BookOpen,
@@ -6,14 +6,18 @@ import {
   Compass,
   Heart,
   HelpCircle,
+  Lightbulb,
   RefreshCw,
   RotateCcw,
   Sparkles,
+  Square,
   Trash2,
+  Volume2,
 } from 'lucide-react';
 import { QuizQuestion, Story, UserProgress } from '../types/story';
 import { STORY_CATEGORIES } from '../data/stories';
 import { evaluateGamification } from '../data/gamification';
+import { getQuizQuestionHint, playHintUnlockChime } from '../utils/quizHints';
 
 interface ValuesAndProgressProps {
   stories: Story[];
@@ -24,8 +28,8 @@ interface ValuesAndProgressProps {
 }
 
 interface MixedQuestionItem {
-  storyId: string;
-  storyTitle: string;
+  story: Story;
+  questionIndexInStory: number;
   quiz: QuizQuestion;
 }
 
@@ -78,10 +82,10 @@ const VALUE_CLUSTERS: ValueCluster[] = [
 function buildMixedQuestions(stories: Story[]): MixedQuestionItem[] {
   const pool: MixedQuestionItem[] = [];
   stories.forEach((story) => {
-    story.quiz.forEach((q) => {
+    story.quiz.forEach((q, qIdx) => {
       pool.push({
-        storyId: story.id,
-        storyTitle: story.title,
+        story,
+        questionIndexInStory: qIdx,
         quiz: q,
       });
     });
@@ -108,7 +112,13 @@ export const ValuesAndProgress: React.FC<ValuesAndProgressProps> = ({
     buildMixedQuestions(stories)
   );
   const [mixedAnswers, setMixedAnswers] = useState<Record<number, number>>({});
+  const [mixedWrongAttempts, setMixedWrongAttempts] = useState<Record<number, number>>({});
+  const [mixedSolved, setMixedSolved] = useState<Record<number, boolean>>({});
+  const [speakingMixedHintIdx, setSpeakingMixedHintIdx] = useState<number | null>(null);
   const [mixedSubmitted, setMixedSubmitted] = useState(false);
+
+  const speechSupported =
+    typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   const totalQuizPoints = Object.values(progress.quizScores).reduce(
     (sum, item) => sum + item.score,
@@ -135,18 +145,105 @@ export const ValuesAndProgress: React.FC<ValuesAndProgressProps> = ({
     });
   }, [stories]);
 
-  const mixedAnsweredCount = Object.keys(mixedAnswers).length;
-  const mixedScore = mixedQuestions.reduce(
+  const mixedSolvedCount = mixedQuestions.reduce(
+    (acc, _, idx) => (mixedSolved[idx] ? acc + 1 : acc),
+    0
+  );
+  const mixedFirstTryScore = mixedQuestions.reduce(
     (acc, item, idx) =>
-      mixedAnswers[idx] === item.quiz.correctIndex ? acc + 1 : acc,
+      mixedSolved[idx] &&
+      mixedAnswers[idx] === item.quiz.correctIndex &&
+      (mixedWrongAttempts[idx] ?? 0) === 0
+        ? acc + 1
+        : acc,
     0
   );
 
+  const stopMixedHintVoice = () => {
+    if (speechSupported) {
+      window.speechSynthesis.cancel();
+    }
+    setSpeakingMixedHintIdx(null);
+  };
+
+  const speakMixedHint = (idx: number, hintText: string) => {
+    if (!speechSupported) return;
+    if (speakingMixedHintIdx === idx) {
+      stopMixedHintVoice();
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const voices = window.speechSynthesis.getVoices();
+    const arabicVoice =
+      voices.find((v) => v.lang.toLowerCase() === 'ar-sa') ??
+      voices.find((v) => v.lang.toLowerCase().startsWith('ar'));
+
+    const utterance = new SpeechSynthesisUtterance(hintText);
+    utterance.lang = arabicVoice?.lang ?? 'ar-SA';
+    utterance.rate = 0.9;
+    utterance.pitch = 1.04;
+    if (arabicVoice) {
+      utterance.voice = arabicVoice;
+    }
+    utterance.onstart = () => setSpeakingMixedHintIdx(idx);
+    utterance.onend = () =>
+      setSpeakingMixedHintIdx((prev) => (prev === idx ? null : prev));
+    utterance.onerror = () =>
+      setSpeakingMixedHintIdx((prev) => (prev === idx ? null : prev));
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleSelectMixedOption = (idx: number, optIdx: number) => {
+    if (mixedSubmitted || mixedSolved[idx]) return;
+    const item = mixedQuestions[idx];
+    if (!item) return;
+
+    if (mixedAnswers[idx] === optIdx && optIdx !== item.quiz.correctIndex) {
+      return;
+    }
+
+    setMixedAnswers((prev) => ({ ...prev, [idx]: optIdx }));
+
+    if (optIdx === item.quiz.correctIndex) {
+      setMixedSolved((prev) => ({ ...prev, [idx]: true }));
+      if (speakingMixedHintIdx === idx) {
+        stopMixedHintVoice();
+      }
+      return;
+    }
+
+    const nextWrong = (mixedWrongAttempts[idx] ?? 0) + 1;
+    setMixedWrongAttempts((prev) => ({ ...prev, [idx]: nextWrong }));
+    if (nextWrong === 2) {
+      playHintUnlockChime();
+      if (speechSupported) {
+        const hintText = getQuizQuestionHint(
+          item.story,
+          item.quiz,
+          item.questionIndexInStory
+        );
+        speakMixedHint(idx, hintText);
+      }
+    }
+  };
+
   const handleNewMixedRound = () => {
+    stopMixedHintVoice();
     setMixedQuestions(buildMixedQuestions(stories));
     setMixedAnswers({});
+    setMixedWrongAttempts({});
+    setMixedSolved({});
     setMixedSubmitted(false);
   };
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const completedStoriesList = stories.filter((s) =>
     progress.completedStoryIds.includes(s.id)
@@ -338,19 +435,36 @@ export const ValuesAndProgress: React.FC<ValuesAndProgressProps> = ({
             <div className="space-y-4">
               {mixedQuestions.map((item, idx) => {
                 const chosen = mixedAnswers[idx];
+                const wrongCount = mixedWrongAttempts[idx] ?? 0;
+                const isSolved = Boolean(mixedSolved[idx]);
+                const showHint = !isSolved && wrongCount >= 2;
+                const hintText = showHint
+                  ? getQuizQuestionHint(
+                      item.story,
+                      item.quiz,
+                      item.questionIndexInStory
+                    )
+                  : '';
+                const isSpeakingThis = speakingMixedHintIdx === idx;
+
                 return (
                   <div
-                    key={`${item.storyId}-${idx}`}
-                    className="rounded-lg border border-[#E6E0D4] dark:border-slate-800 p-4 space-y-2.5"
+                    key={`${item.story.id}-${idx}`}
+                    className={`rounded-lg border p-4 space-y-2.5 ${
+                      isSolved
+                        ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/20 dark:bg-emerald-950/15'
+                        : 'border-[#E6E0D4] dark:border-slate-800'
+                    }`}
                   >
                     <div className="flex items-center justify-between gap-2 text-[11px] text-[#0D7A5F] dark:text-emerald-400">
                       <button
                         type="button"
-                        onClick={() => onOpenStory(item.storyId)}
+                        onClick={() => onOpenStory(item.story.id)}
                         className="hover:underline truncate cursor-pointer"
                       >
-                        من قصة: {item.storyTitle}
+                        من قصة: {item.story.title}
                       </button>
+                      {isSolved && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
                     </div>
                     <p className="text-xs sm:text-sm font-bold text-[#1C2421] dark:text-slate-100">
                       {idx + 1}. {item.quiz.question}
@@ -360,28 +474,26 @@ export const ValuesAndProgress: React.FC<ValuesAndProgressProps> = ({
                         const isSelected = chosen === optIdx;
                         const isCorrect = optIdx === item.quiz.correctIndex;
                         let cls =
-                          'border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/60 text-[#1C2421] dark:text-slate-200';
-                        if (mixedSubmitted) {
+                          'border-[#E6E0D4] dark:border-slate-700 bg-[#FAF8F4] dark:bg-slate-800/60 text-[#1C2421] dark:text-slate-200 hover:border-[#0D7A5F]';
+                        if (isSolved || mixedSubmitted) {
                           if (isCorrect) {
                             cls =
                               'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 font-medium';
-                          } else if (isSelected && !isCorrect) {
+                          } else {
                             cls =
-                              'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200';
+                              'border-[#E6E0D4] dark:border-slate-800 bg-white dark:bg-slate-900 text-[#64706B] dark:text-slate-500 opacity-75';
                           }
-                        } else if (isSelected) {
+                        } else if (isSelected && !isCorrect) {
                           cls =
-                            'border-[#0D7A5F] dark:border-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/40 text-[#0D7A5F] dark:text-emerald-300 font-medium';
+                            'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200';
                         }
 
                         return (
                           <button
                             key={optIdx}
                             type="button"
-                            disabled={mixedSubmitted}
-                            onClick={() =>
-                              setMixedAnswers((prev) => ({ ...prev, [idx]: optIdx }))
-                            }
+                            disabled={mixedSubmitted || isSolved}
+                            onClick={() => handleSelectMixedOption(idx, optIdx)}
                             className={`w-full text-right px-3 py-2 text-xs rounded-lg border transition-colors cursor-pointer disabled:cursor-default ${cls}`}
                           >
                             {opt}
@@ -390,7 +502,46 @@ export const ValuesAndProgress: React.FC<ValuesAndProgressProps> = ({
                       })}
                     </div>
 
-                    {mixedSubmitted && (
+                    {!isSolved && wrongCount === 1 && (
+                      <p className="text-[11px] text-rose-700 dark:text-rose-300 bg-rose-50/70 dark:bg-rose-950/25 border border-rose-200 dark:border-rose-900/60 rounded-md px-2.5 py-1.5">
+                        محاولة غير دقيقة (١/٢) — جرّب إجابة أخرى وسيظهر لك تلميح ذكي بعد المحاولة الثانية!
+                      </p>
+                    )}
+
+                    {showHint && (
+                      <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50/85 dark:bg-amber-950/35 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#9A670E] dark:text-amber-300">
+                            <Lightbulb className="w-3.5 h-3.5 shrink-0" />
+                            <span>تلميح ذكي (بعد محاولتين)</span>
+                          </span>
+                          {speechSupported && (
+                            <button
+                              type="button"
+                              onClick={() => speakMixedHint(idx, hintText)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-[#9A670E] dark:text-amber-300 cursor-pointer"
+                            >
+                              {isSpeakingThis ? (
+                                <>
+                                  <Square className="w-3 h-3 fill-current" />
+                                  <span>إيقاف</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="w-3 h-3" />
+                                  <span>استمع</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#1C2421] dark:text-slate-100 leading-relaxed">
+                          {hintText}
+                        </p>
+                      </div>
+                    )}
+
+                    {(isSolved || mixedSubmitted) && (
                       <p className="text-xs text-[#4B5853] dark:text-slate-300 pt-1">
                         {item.quiz.explanation}
                       </p>
@@ -403,18 +554,21 @@ export const ValuesAndProgress: React.FC<ValuesAndProgressProps> = ({
             {!mixedSubmitted ? (
               <button
                 type="button"
-                disabled={mixedAnsweredCount < mixedQuestions.length}
-                onClick={() => setMixedSubmitted(true)}
+                disabled={mixedSolvedCount < mixedQuestions.length}
+                onClick={() => {
+                  stopMixedHintVoice();
+                  setMixedSubmitted(true);
+                }}
                 className="w-full py-2.5 px-4 text-sm font-medium rounded-lg bg-[#0D7A5F] hover:bg-[#09604B] dark:bg-emerald-600 text-white disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
               >
-                {mixedAnsweredCount < mixedQuestions.length
-                  ? `أجب عن جميع الأسئلة (${mixedAnsweredCount}/${mixedQuestions.length})`
+                {mixedSolvedCount < mixedQuestions.length
+                  ? `أكمل حل جميع الأسئلة (${mixedSolvedCount}/${mixedQuestions.length})`
                   : 'اعرض نتيجتي في التحدي'}
               </button>
             ) : (
               <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/25 p-4 text-center space-y-2">
                 <p className="text-base font-bold text-[#1C2421] dark:text-slate-100 tabular-nums">
-                  نتيجتك: {mixedScore} من {mixedQuestions.length}
+                  نتيجتك من المحاولة الأولى: {mixedFirstTryScore} من {mixedQuestions.length}
                 </p>
                 <button
                   type="button"

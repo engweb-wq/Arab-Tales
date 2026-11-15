@@ -3,6 +3,7 @@ export type StoryCategory =
   | 'seerah'
   | 'morals'
   | 'wisdom'
+  | 'kalila'
   | 'poetry';
 
 export type AgeGroup = '٣–٥ سنوات' | '٦–٨ سنوات' | '٩–١١ سنة';
@@ -59,7 +60,12 @@ export type IllustrationId =
   | 'frogs-tower'
   | 'tamer-cat'
   | 'school-poem'
-  | 'rainbow-rabbit';
+  | 'rainbow-rabbit'
+  | 'kalila-pigeons'
+  | 'kalila-fox-drum'
+  | 'kalila-monkey-turtle'
+  | 'kalila-rabbit-lion'
+  | 'kalila-three-fishes';
 
 export interface InStoryPrompt {
   question: string;

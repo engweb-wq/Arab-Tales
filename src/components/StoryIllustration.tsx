@@ -393,6 +393,231 @@ export const StoryIllustration: React.FC<StoryIllustrationProps> = ({ id, classN
           </g>
         );
 
+      case 'kalila-pigeons':
+        return (
+          <g>
+            {/* Sky & Sun */}
+            <rect width="400" height="240" fill="#DBEAFE" className="dark:fill-[#132238]" />
+            <circle cx="66" cy="46" r="22" fill="#FDE047" />
+            <path d="M270 46 C270 36 284 32 294 38 C302 28 318 30 322 40 C334 40 338 52 328 56 L274 56 C266 56 266 46 270 46 Z" fill="#FFFFFF" opacity="0.9" />
+            {/* Forest Hills */}
+            <path d="M0 185 Q110 155 210 180 T400 175 L400 240 L0 240 Z" fill="#6EE7B7" />
+            <path d="M0 205 Q170 185 400 202 L400 240 L0 240 Z" fill="#10B981" />
+            {/* Friendly Tree & Mouse Burrow */}
+            <rect x="336" y="135" width="16" height="62" rx="4" fill="#92400E" />
+            <circle cx="344" cy="120" r="34" fill="#059669" />
+            {/* Helpful Mouse on ground */}
+            <g transform="translate(270, 178)">
+              <ellipse cx="22" cy="18" rx="16" ry="11" fill="#94A3B8" />
+              <circle cx="11" cy="12" r="8" fill="#94A3B8" />
+              <circle cx="13" cy="6" r="5" fill="#CBD5E1" />
+              <circle cx="9" cy="11" r="1.5" fill="#1E293B" />
+              <circle cx="4" cy="14" r="2" fill="#FB7185" />
+              <path d="M38 19 Q50 14 54 22" fill="none" stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round" />
+            </g>
+            {/* Lifted Net */}
+            <path
+              d="M92 96 Q200 132 308 96 L292 146 Q200 168 108 146 Z"
+              fill="none"
+              stroke="#B45309"
+              strokeWidth="2.2"
+              strokeDasharray="6 4"
+            />
+            <line x1="120" y1="108" x2="280" y2="108" stroke="#D97706" strokeWidth="1.5" opacity="0.7" />
+            <line x1="115" y1="128" x2="285" y2="128" stroke="#D97706" strokeWidth="1.5" opacity="0.7" />
+            <line x1="160" y1="106" x2="152" y2="154" stroke="#D97706" strokeWidth="1.5" opacity="0.7" />
+            <line x1="200" y1="112" x2="200" y2="158" stroke="#D97706" strokeWidth="1.5" opacity="0.7" />
+            <line x1="240" y1="106" x2="248" y2="154" stroke="#D97706" strokeWidth="1.5" opacity="0.7" />
+            {/* Ringed Dove Leader (Center) */}
+            <g transform="translate(178, 56)">
+              <path d="M6 20 Q22 2 38 18" fill="#E0F2FE" stroke="#0284C7" strokeWidth="1.5" />
+              <ellipse cx="22" cy="24" rx="16" ry="11" fill="#FFFFFF" stroke="#94A3B8" strokeWidth="1.5" />
+              <circle cx="34" cy="16" r="8" fill="#FFFFFF" stroke="#94A3B8" strokeWidth="1.5" />
+              {/* Distinctive Golden Collar */}
+              <path d="M27 20 Q34 25 40 20" fill="none" stroke="#F59E0B" strokeWidth="3.5" strokeLinecap="round" />
+              <polygon points="41,15 48,17 41,19" fill="#F59E0B" />
+              <circle cx="36" cy="14.5" r="1.6" fill="#1E293B" />
+            </g>
+            {/* Companion Doves Left & Right */}
+            <g transform="translate(86, 68)">
+              <path d="M6 18 Q18 4 30 16" fill="#E0F2FE" stroke="#0284C7" strokeWidth="1.3" />
+              <ellipse cx="18" cy="22" rx="13" ry="9" fill="#F8FAFC" stroke="#94A3B8" strokeWidth="1.3" />
+              <circle cx="28" cy="15" r="6.5" fill="#F8FAFC" stroke="#94A3B8" strokeWidth="1.3" />
+              <polygon points="34,14 39,16 34,17.5" fill="#F59E0B" />
+              <circle cx="29.5" cy="14" r="1.3" fill="#1E293B" />
+            </g>
+            <g transform="translate(274, 68)">
+              <path d="M6 18 Q18 4 30 16" fill="#E0F2FE" stroke="#0284C7" strokeWidth="1.3" />
+              <ellipse cx="18" cy="22" rx="13" ry="9" fill="#F8FAFC" stroke="#94A3B8" strokeWidth="1.3" />
+              <circle cx="28" cy="15" r="6.5" fill="#F8FAFC" stroke="#94A3B8" strokeWidth="1.3" />
+              <polygon points="34,14 39,16 34,17.5" fill="#F59E0B" />
+              <circle cx="29.5" cy="14" r="1.3" fill="#1E293B" />
+            </g>
+          </g>
+        );
+
+      case 'kalila-fox-drum':
+        return (
+          <g>
+            <rect width="400" height="240" fill="#FEF3C7" className="dark:fill-[#1A2421]" />
+            <circle cx="325" cy="52" r="24" fill="#FBBF24" opacity="0.85" />
+            {/* Meadow */}
+            <path d="M0 184 Q140 164 270 184 T400 176 L400 240 L0 240 Z" fill="#34D399" />
+            <path d="M0 202 Q190 186 400 202 L400 240 L0 240 Z" fill="#059669" />
+            {/* Big Tree & Branch */}
+            <rect x="278" y="34" width="28" height="164" rx="6" fill="#92400E" />
+            <path d="M286 72 Q225 60 175 74" fill="none" stroke="#92400E" strokeWidth="12" strokeLinecap="round" />
+            <circle cx="292" cy="40" r="46" fill="#10B981" />
+            <circle cx="250" cy="48" r="32" fill="#059669" />
+            <circle cx="332" cy="52" r="30" fill="#047857" />
+            {/* Sound Waves & Wind */}
+            <path d="M132 104 Q118 118 132 132" fill="none" stroke="#F59E0B" strokeWidth="3" strokeLinecap="round" />
+            <path d="M118 96 Q98 118 118 140" fill="none" stroke="#F59E0B" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
+            <path d="M238 104 Q252 118 238 132" fill="none" stroke="#F59E0B" strokeWidth="3" strokeLinecap="round" />
+            {/* Hanging Colorful Drum */}
+            <line x1="185" y1="69" x2="185" y2="96" stroke="#78350F" strokeWidth="3" />
+            <g transform="translate(152, 94)">
+              <rect x="0" y="6" width="66" height="44" rx="10" fill="#DC2626" stroke="#7F1D1D" strokeWidth="2.5" />
+              <ellipse cx="33" cy="8" rx="33" ry="9" fill="#FEF9C3" stroke="#D97706" strokeWidth="2.5" />
+              <path d="M8 14 L22 44 L34 14 L46 44 L58 14" fill="none" stroke="#FDE047" strokeWidth="3" strokeLinejoin="round" />
+            </g>
+            {/* Curious Orange Fox */}
+            <g transform="translate(76, 134)">
+              <path d="M8 52 Q-12 36 4 22 Q16 32 18 48 Z" fill="#F97316" />
+              <path d="M-2 27 Q4 20 11 26 L4 34 Z" fill="#FFFFFF" />
+              <ellipse cx="34" cy="50" rx="22" ry="18" fill="#F97316" />
+              <ellipse cx="38" cy="52" rx="12" ry="12" fill="#FFF7ED" />
+              <polygon points="36,12 42,2 48,14" fill="#EA580C" />
+              <polygon points="50,12 58,2 62,15" fill="#EA580C" />
+              <circle cx="48" cy="24" r="15" fill="#F97316" />
+              <ellipse cx="56" cy="27" rx="10" ry="7" fill="#FFF7ED" />
+              <circle cx="64" cy="26" r="2.5" fill="#1E293B" />
+              <circle cx="51" cy="20" r="2.5" fill="#1E293B" />
+            </g>
+          </g>
+        );
+
+      case 'kalila-monkey-turtle':
+        return (
+          <g>
+            {/* Tropical Sky */}
+            <rect width="400" height="240" fill="#BAE6FD" className="dark:fill-[#0F2438]" />
+            <circle cx="328" cy="48" r="24" fill="#FDE047" />
+            {/* Palm Island on Right */}
+            <path d="M275 186 Q340 154 400 182 L400 210 L265 210 Z" fill="#FDE68A" />
+            <path d="M338 166 Q326 118 334 86" fill="none" stroke="#92400E" strokeWidth="10" strokeLinecap="round" />
+            <path d="M334 86 Q300 72 284 94" fill="none" stroke="#16A34A" strokeWidth="9" strokeLinecap="round" />
+            <path d="M334 86 Q368 68 386 90" fill="none" stroke="#15803D" strokeWidth="9" strokeLinecap="round" />
+            <path d="M334 86 Q336 52 362 56" fill="none" stroke="#22C55E" strokeWidth="8" strokeLinecap="round" />
+            {/* Fig Fruit Dots */}
+            <circle cx="318" cy="96" r="4.5" fill="#7E22CE" />
+            <circle cx="348" cy="96" r="4.5" fill="#7E22CE" />
+            {/* Turquoise Waves */}
+            <path d="M0 165 Q50 152 100 165 T200 165 T300 165 T400 165 L400 240 L0 240 Z" fill="#0EA5E9" />
+            <path d="M0 192 Q60 180 120 192 T240 192 T360 192 L400 192 L400 240 L0 240 Z" fill="#0284C7" />
+            {/* Friendly Sea Turtle */}
+            <g transform="translate(124, 136)">
+              <ellipse cx="52" cy="42" rx="44" ry="14" fill="#86EFAC" />
+              <path d="M12 36 Q52 -8 92 36 Z" fill="#15803D" stroke="#14532D" strokeWidth="2.5" />
+              <circle cx="42" cy="24" r="7" fill="#22C55E" opacity="0.65" />
+              <circle cx="64" cy="24" r="7" fill="#22C55E" opacity="0.65" />
+              <circle cx="53" cy="14" r="6" fill="#22C55E" opacity="0.65" />
+              <circle cx="102" cy="28" r="12" fill="#4ADE80" stroke="#15803D" strokeWidth="2" />
+              <circle cx="106" cy="25" r="2.3" fill="#1E293B" />
+              <path d="M102 32 Q107 35 111 32" fill="none" stroke="#14532D" strokeWidth="1.8" strokeLinecap="round" />
+            </g>
+            {/* Clever Monkey on Turtle Shell */}
+            <g transform="translate(150, 82)">
+              <path d="M12 48 Q-6 40 2 24" fill="none" stroke="#78350F" strokeWidth="4.5" strokeLinecap="round" />
+              <ellipse cx="26" cy="44" rx="15" ry="18" fill="#92400E" />
+              <ellipse cx="26" cy="46" rx="9" ry="12" fill="#FDE68A" />
+              <circle cx="11" cy="20" r="6" fill="#FDE68A" stroke="#78350F" strokeWidth="2" />
+              <circle cx="41" cy="20" r="6" fill="#FDE68A" stroke="#78350F" strokeWidth="2" />
+              <circle cx="26" cy="21" r="13" fill="#92400E" />
+              <ellipse cx="26" cy="24" rx="10" ry="8" fill="#FDE68A" />
+              <circle cx="22" cy="19" r="2.2" fill="#1E293B" />
+              <circle cx="30" cy="19" r="2.2" fill="#1E293B" />
+              <path d="M21 26 Q26 30 31 26" fill="none" stroke="#78350F" strokeWidth="2" strokeLinecap="round" />
+            </g>
+          </g>
+        );
+
+      case 'kalila-rabbit-lion':
+        return (
+          <g>
+            <rect width="400" height="240" fill="#FEF9C3" className="dark:fill-[#1F242D]" />
+            <circle cx="64" cy="48" r="22" fill="#F59E0B" opacity="0.8" />
+            <path d="M0 176 Q140 156 260 176 T400 170 L400 240 L0 240 Z" fill="#86EFAC" />
+            <path d="M0 198 Q200 182 400 198 L400 240 L0 240 Z" fill="#16A34A" />
+            {/* Stone Well in Center */}
+            <g transform="translate(152, 134)">
+              <rect x="8" y="22" width="84" height="50" rx="6" fill="#CBD5E1" stroke="#64748B" strokeWidth="2.5" />
+              <line x1="8" y1="38" x2="92" y2="38" stroke="#64748B" strokeWidth="2" />
+              <line x1="8" y1="54" x2="92" y2="54" stroke="#64748B" strokeWidth="2" />
+              <ellipse cx="50" cy="22" rx="46" ry="13" fill="#94A3B8" stroke="#475569" strokeWidth="2.5" />
+              <ellipse cx="50" cy="22" rx="36" ry="9" fill="#0EA5E9" />
+              {/* Lion's Reflection in Water */}
+              <circle cx="50" cy="22" r="6" fill="#FBBF24" opacity="0.7" />
+            </g>
+            {/* Proud Lion Looking into Well */}
+            <g transform="translate(242, 86)">
+              <ellipse cx="54" cy="76" rx="28" ry="20" fill="#F59E0B" />
+              <circle cx="28" cy="48" r="24" fill="#B45309" />
+              <circle cx="26" cy="48" r="16" fill="#FBBF24" />
+              <circle cx="21" cy="45" r="2.3" fill="#1E293B" />
+              <polygon points="15,52 21,52 18,56" fill="#78350F" />
+            </g>
+            {/* Clever Little Rabbit */}
+            <g transform="translate(76, 128)">
+              <ellipse cx="18" cy="12" rx="5" ry="15" transform="rotate(-8 18 12)" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="1.5" />
+              <ellipse cx="30" cy="12" rx="5" ry="15" transform="rotate(8 30 12)" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="1.5" />
+              <ellipse cx="24" cy="48" rx="16" ry="18" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="1.5" />
+              <circle cx="24" cy="28" r="13" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="1.5" />
+              <circle cx="28" cy="26" r="2" fill="#1E293B" />
+              <circle cx="33" cy="29" r="2" fill="#FB7185" />
+            </g>
+          </g>
+        );
+
+      case 'kalila-three-fishes':
+        return (
+          <g>
+            <rect width="400" height="240" fill="#E0F2FE" className="dark:fill-[#0F2438]" />
+            {/* Surrounding Reeds & River Bank */}
+            <path d="M0 75 Q140 58 280 78 T400 72 L400 240 L0 240 Z" fill="#0EA5E9" />
+            <path d="M0 135 Q160 118 320 135 T400 128 L400 240 L0 240 Z" fill="#0284C7" />
+            <path d="M0 0 L400 0 L400 66 Q260 52 140 66 T0 60 Z" fill="#86EFAC" />
+            {/* Reeds Left & Right */}
+            <path d="M26 95 Q22 50 32 32 M38 98 Q44 55 52 38" fill="none" stroke="#15803D" strokeWidth="4" strokeLinecap="round" />
+            <path d="M356 96 Q350 52 360 36 M370 98 Q376 56 384 40" fill="none" stroke="#15803D" strokeWidth="4" strokeLinecap="round" />
+            {/* Bubbles */}
+            <circle cx="110" cy="96" r="4" fill="#FFFFFF" opacity="0.65" />
+            <circle cx="205" cy="112" r="5" fill="#FFFFFF" opacity="0.65" />
+            <circle cx="298" cy="100" r="4" fill="#FFFFFF" opacity="0.65" />
+            {/* Fish 1: Wise Emerald/Gold */}
+            <g transform="translate(74, 108)">
+              <polygon points="0,16 -14,6 -14,26" fill="#F59E0B" />
+              <ellipse cx="20" cy="16" rx="22" ry="13" fill="#10B981" stroke="#FFFFFF" strokeWidth="2" />
+              <circle cx="32" cy="13" r="2.5" fill="#1E293B" />
+              <path d="M30 20 Q34 23 38 20" fill="none" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" />
+            </g>
+            {/* Fish 2: Decisive Amber */}
+            <g transform="translate(178, 152)">
+              <polygon points="0,16 -14,6 -14,26" fill="#EA580C" />
+              <ellipse cx="20" cy="16" rx="22" ry="13" fill="#FBBF24" stroke="#FFFFFF" strokeWidth="2" />
+              <circle cx="32" cy="13" r="2.5" fill="#1E293B" />
+              <path d="M30 20 Q34 22 38 20" fill="none" stroke="#78350F" strokeWidth="1.8" strokeLinecap="round" />
+            </g>
+            {/* Fish 3: Carefree Coral */}
+            <g transform="translate(278, 114)">
+              <polygon points="40,16 54,6 54,26" fill="#E11D48" />
+              <ellipse cx="20" cy="16" rx="22" ry="13" fill="#FB7185" stroke="#FFFFFF" strokeWidth="2" />
+              <circle cx="9" cy="13" r="2.5" fill="#1E293B" />
+              <circle cx="10" cy="20" r="2" fill="#FFFFFF" />
+            </g>
+          </g>
+        );
+
       default:
         return (
           <g>

@@ -1,6 +1,7 @@
 import { CategoryMeta, Story } from '../types/story';
 import { CHARACTER_ADVENTURE_STORIES } from './characterStories';
 import { EARLY_CHILDHOOD_STORIES } from './earlyChildhoodStories';
+import { KALILA_DIMNA_STORIES } from './kalilaStories';
 
 export const STORY_CATEGORIES: CategoryMeta[] = [
   {
@@ -27,6 +28,11 @@ export const STORY_CATEGORIES: CategoryMeta[] = [
     id: 'wisdom',
     label: 'الحكمة والحيوان',
     description: 'قصص رمزية وحكايات الحيوانات لتنمية الذكاء والمثابرة',
+  },
+  {
+    id: 'kalila',
+    label: 'كليلة ودمنة',
+    description: 'حكايات خالدة برسوم جميلة على ألسنة الحيوانات والطيور لتعليم الحكمة والتعاون',
   },
   {
     id: 'poetry',
@@ -1588,6 +1594,7 @@ const CORE_LIBRARY_STORIES: Story[] = [
 ];
 
 export const STORIES: Story[] = [
+  ...KALILA_DIMNA_STORIES,
   ...CHARACTER_ADVENTURE_STORIES,
   ...EARLY_CHILDHOOD_STORIES,
   ...CORE_LIBRARY_STORIES,

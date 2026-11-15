@@ -12,6 +12,7 @@ import {
   Lightbulb,
   MessageCircle,
   Moon,
+  Music,
   Palette,
   Pause,
   Play,
@@ -21,7 +22,10 @@ import {
   Sparkles,
   Square,
   Sun,
+  Trees,
   Volume2,
+  VolumeX,
+  Waves,
   X,
 } from 'lucide-react';
 import { Story, UserProgress } from '../types/story';
@@ -32,6 +36,12 @@ import {
   extractStoryGlossaryTerms,
   tokenizeParagraphWithGlossary,
 } from '../data/glossary';
+import {
+  AMBIENT_SCENES,
+  AmbientAudioEngine,
+  AmbientSceneId,
+  getAmbientSceneForStory,
+} from '../utils/ambientAudio';
 import { StoryIllustration } from './StoryIllustration';
 import { CharacterAvatar } from './CharacterAvatar';
 import { CharacterColoringStudio } from './CharacterColoringStudio';
@@ -119,6 +129,14 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
   readingModeRef.current = readingMode;
   const activeSentenceElRef = useRef<HTMLSpanElement | null>(null);
 
+  // Category-aware Ambient Soundscape state
+  const [ambientEnabled, setAmbientEnabled] = useState(false);
+  const [ambientOverride, setAmbientOverride] = useState<'auto' | AmbientSceneId>(
+    'auto'
+  );
+  const [ambientVolume, setAmbientVolume] = useState<0.2 | 0.4 | 0.65>(0.4);
+  const ambientEngineRef = useRef<AmbientAudioEngine | null>(null);
+
   const isCompleted = progress.completedStoryIds.includes(story.id);
   const isFavorite = progress.favoriteStoryIds.includes(story.id);
   const isChallengeDone = progress.completedChallenges.includes(story.id);
@@ -189,6 +207,37 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
       window.speechSynthesis.removeEventListener('voiceschanged', updateVoices);
     };
   }, [speechSupported]);
+
+  const autoAmbientScene = useMemo(
+    () => getAmbientSceneForStory(story),
+    [story]
+  );
+  const effectiveAmbientScene: AmbientSceneId =
+    ambientOverride === 'auto' ? autoAmbientScene : ambientOverride;
+
+  // Sync procedural Ambient Audio Engine with story category and user toggle
+  useEffect(() => {
+    if (!ambientEnabled) {
+      ambientEngineRef.current?.stop();
+      return;
+    }
+    if (!ambientEngineRef.current) {
+      ambientEngineRef.current = new AmbientAudioEngine();
+    }
+    ambientEngineRef.current.setVolume(ambientVolume);
+    ambientEngineRef.current.start(effectiveAmbientScene);
+  }, [ambientEnabled, effectiveAmbientScene]);
+
+  useEffect(() => {
+    ambientEngineRef.current?.setVolume(ambientVolume);
+  }, [ambientVolume]);
+
+  useEffect(() => {
+    return () => {
+      ambientEngineRef.current?.dispose();
+      ambientEngineRef.current = null;
+    };
+  }, []);
 
   const storyGlossaryTerms = useMemo(
     () => extractStoryGlossaryTerms(story.paragraphs),
@@ -832,6 +881,113 @@ export const StoryReader: React.FC<StoryReaderProps> = ({
               {speechError && (
                 <p className="text-xs text-rose-600 dark:text-rose-400">{speechError}</p>
               )}
+
+              {/* Category-Aware Ambient Soundscape Controls */}
+              <div className="pt-3 mt-1 border-t border-[#E6E0D4]/80 dark:border-slate-700 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {effectiveAmbientScene === 'forest' && (
+                      <Trees className="w-4 h-4 text-[#0D7A5F] dark:text-emerald-400 shrink-0" />
+                    )}
+                    {effectiveAmbientScene === 'library' && (
+                      <BookOpen className="w-4 h-4 text-[#C88A1E] dark:text-amber-400 shrink-0" />
+                    )}
+                    {effectiveAmbientScene === 'sea' && (
+                      <Waves className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+                    )}
+                    {effectiveAmbientScene === 'desert-night' && (
+                      <Moon className="w-4 h-4 text-amber-500 dark:text-amber-300 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#1C2421] dark:text-slate-100 truncate">
+                        أجواء الخلفية: {AMBIENT_SCENES[effectiveAmbientScene].label}
+                      </p>
+                      <p className="text-[11px] text-[#64706B] dark:text-slate-400 truncate">
+                        {ambientOverride === 'auto'
+                          ? `تلقائي لتصنيف «${categoryLabel}» · ${AMBIENT_SCENES[effectiveAmbientScene].description}`
+                          : AMBIENT_SCENES[effectiveAmbientScene].description}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAmbientEnabled((prev) => !prev)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer shrink-0 ${
+                      ambientEnabled
+                        ? 'border-[#0D7A5F] bg-[#0D7A5F] text-white dark:border-emerald-500 dark:bg-emerald-600'
+                        : 'border-[#E6E0D4] dark:border-slate-600 bg-white dark:bg-slate-900 text-[#1C2421] dark:text-slate-200 hover:border-[#0D7A5F]'
+                    }`}
+                  >
+                    {ambientEnabled ? (
+                      <>
+                        <VolumeX className="w-3.5 h-3.5" />
+                        <span>إيقاف الخلفية</span>
+                      </>
+                    ) : (
+                      <>
+                        <Music className="w-3.5 h-3.5 text-[#0D7A5F] dark:text-emerald-400" />
+                        <span>تشغيل أجواء القصة</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {/* Auto or Manual Scene Selector */}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {(
+                      [
+                        { id: 'auto', label: 'تلقائي حسب القصة' },
+                        { id: 'forest', label: 'غابة' },
+                        { id: 'library', label: 'مكتبة' },
+                        { id: 'sea', label: 'بحر' },
+                        { id: 'desert-night', label: 'سكينة الليل' },
+                      ] as const
+                    ).map((opt) => {
+                      const active = ambientOverride === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setAmbientOverride(opt.id)}
+                          className={`px-2 py-1 text-[11px] font-medium rounded-md border transition-colors cursor-pointer ${
+                            active
+                              ? 'border-[#0D7A5F] bg-emerald-50 dark:bg-emerald-950/50 text-[#0D7A5F] dark:text-emerald-400'
+                              : 'border-[#E6E0D4] dark:border-slate-700 bg-white dark:bg-slate-900 text-[#64706B] dark:text-slate-400 hover:text-[#1C2421]'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Ambient Volume Control */}
+                  <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-[#E6E0D4] dark:border-slate-700 p-0.5 rounded-lg">
+                    {(
+                      [
+                        { vol: 0.2, label: 'خافت' },
+                        { vol: 0.4, label: 'متوسط' },
+                        { vol: 0.65, label: 'واضح' },
+                      ] as const
+                    ).map((v) => (
+                      <button
+                        key={v.vol}
+                        type="button"
+                        onClick={() => setAmbientVolume(v.vol)}
+                        className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors cursor-pointer ${
+                          ambientVolume === v.vol
+                            ? 'bg-[#C88A1E] text-white dark:bg-amber-600'
+                            : 'text-[#64706B] dark:text-slate-400'
+                        }`}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Interactive Glossary Quick Strip */}
